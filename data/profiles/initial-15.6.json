@@ -1,0 +1,362 @@
+{
+  "iteration_id": "initial-15.6",
+  "workbook": "season -1 (beta).xlsx",
+  "sheet": "15.6",
+  "rules": {
+    "player_count": 8,
+    "starting_health": 30,
+    "starting_armor": 0,
+    "starting_gold": 3,
+    "gold_per_turn": 1,
+    "max_gold": 10,
+    "buy_cost": 3,
+    "sell_refund": 1,
+    "reroll_cost": 1,
+    "starting_tavern_tier": 1,
+    "max_tavern_tier": 6,
+    "tavern_upgrade_costs": [5, 7, 8, 9, 10],
+    "shop_slots_by_tier": [3, 4, 5, 6, 7, 7],
+    "pool_copies_by_tier": [16, 15, 13, 11, 9, 7],
+    "board_limit": 7,
+    "hand_limit": 10,
+    "combat_damage_cap": 15,
+    "rematch_avoidance_rounds": 1,
+    "max_match_turns": 100
+  },
+  "enabled_card_ids": [
+    "15.6:1",
+    "15.6:3",
+    "15.6:4",
+    "15.6:6",
+    "15.6:9",
+    "15.6:10",
+    "15.6:11",
+    "15.6:13",
+    "15.6:17",
+    "15.6:18",
+    "15.6:19",
+    "15.6:21",
+    "15.6:23",
+    "15.6:27",
+    "15.6:28",
+    "15.6:29",
+    "15.6:30",
+    "15.6:32",
+    "15.6:37",
+    "15.6:39",
+    "15.6:40",
+    "15.6:48",
+    "15.6:55",
+    "15.6:61",
+    "15.6:64",
+    "15.6:66",
+    "15.6:70",
+    "15.6:73",
+    "15.6:75"
+  ],
+  "card_effects": {
+    "15.6:1": [
+      {
+        "trigger": "battlecry",
+        "operation": "summon",
+        "count": 1,
+        "token": {
+          "name": "Cat",
+          "attack": 1,
+          "health": 1
+        }
+      }
+    ],
+    "15.6:3": [
+      {
+        "trigger": "passive",
+        "operation": "keyword",
+        "target": "self",
+        "keyword": "taunt"
+      }
+    ],
+    "15.6:4": [
+      {
+        "trigger": "battlecry",
+        "operation": "damage_hero",
+        "amount": 2
+      }
+    ],
+    "15.6:6": [
+      {
+        "trigger": "deathrattle",
+        "operation": "summon",
+        "count": 1,
+        "token": {
+          "name": "Jo-E Bot",
+          "attack": 1,
+          "health": 1
+        }
+      }
+    ],
+    "15.6:9": [
+      {
+        "trigger": "battlecry",
+        "operation": "summon",
+        "count": 1,
+        "token": {
+          "name": "Murloc Scout",
+          "attack": 1,
+          "health": 1
+        }
+      }
+    ],
+    "15.6:10": [
+      {
+        "trigger": "battlecry",
+        "operation": "buff",
+        "target": "friendly_murloc",
+        "attack": 1,
+        "health": 1
+      }
+    ],
+    "15.6:11": [
+      {
+        "trigger": "passive",
+        "operation": "keyword",
+        "target": "self",
+        "keyword": "taunt"
+      },
+      {
+        "trigger": "passive",
+        "operation": "keyword",
+        "target": "self",
+        "keyword": "divine_shield"
+      }
+    ],
+    "15.6:13": [
+      {
+        "trigger": "deathrattle",
+        "operation": "summon",
+        "count": 1,
+        "token": {
+          "name": "Big Bad Wolf",
+          "attack": 3,
+          "health": 2
+        }
+      }
+    ],
+    "15.6:17": [
+      {
+        "trigger": "battlecry",
+        "operation": "buff",
+        "target": "friendly_demon",
+        "attack": 2,
+        "health": 2
+      }
+    ],
+    "15.6:18": [
+      {
+        "trigger": "passive",
+        "operation": "keyword",
+        "target": "self",
+        "keyword": "taunt"
+      },
+      {
+        "trigger": "passive",
+        "operation": "keyword",
+        "target": "self",
+        "keyword": "divine_shield"
+      }
+    ],
+    "15.6:19": [
+      {
+        "trigger": "deathrattle",
+        "operation": "summon",
+        "count": 1,
+        "token": {
+          "name": "Damaged Golem",
+          "attack": 2,
+          "health": 1
+        }
+      }
+    ],
+    "15.6:21": [
+      {
+        "trigger": "battlecry",
+        "operation": "buff",
+        "target": "other_friendly_mechs",
+        "attack": 2,
+        "health": 0
+      }
+    ],
+    "15.6:23": [
+      {
+        "trigger": "passive",
+        "operation": "keyword",
+        "target": "self",
+        "keyword": "divine_shield"
+      }
+    ],
+    "15.6:27": [],
+    "15.6:28": [
+      {
+        "trigger": "deathrattle",
+        "operation": "buff",
+        "target": "all_friendly_minions",
+        "attack": 1,
+        "health": 1
+      }
+    ],
+    "15.6:29": [
+      {
+        "trigger": "battlecry",
+        "operation": "buff",
+        "target": "friendly_beast",
+        "attack": 2,
+        "health": 2,
+        "keywords": ["taunt"]
+      }
+    ],
+    "15.6:30": [
+      {
+        "trigger": "deathrattle",
+        "operation": "summon",
+        "count": 2,
+        "token": {
+          "name": "Spider",
+          "attack": 1,
+          "health": 1
+        }
+      }
+    ],
+    "15.6:32": [
+      {
+        "trigger": "battlecry",
+        "operation": "buff",
+        "target": "friendly_demons",
+        "attack": 1,
+        "health": 1
+      }
+    ],
+    "15.6:37": [
+      {
+        "trigger": "passive",
+        "operation": "keyword",
+        "target": "self",
+        "keyword": "taunt"
+      },
+      {
+        "trigger": "passive",
+        "operation": "keyword",
+        "target": "self",
+        "keyword": "divine_shield"
+      }
+    ],
+    "15.6:39": [
+      {
+        "trigger": "battlecry",
+        "operation": "buff",
+        "target": "friendly_mech",
+        "attack": 2,
+        "health": 2
+      }
+    ],
+    "15.6:40": [
+      {
+        "trigger": "battlecry",
+        "operation": "buff",
+        "target": "other_friendly_murlocs",
+        "attack": 0,
+        "health": 2
+      }
+    ],
+    "15.6:48": [
+      {
+        "trigger": "battlecry",
+        "operation": "buff",
+        "target": "friendly_beast",
+        "attack": 2,
+        "health": 2
+      }
+    ],
+    "15.6:55": [
+      {
+        "trigger": "battlecry",
+        "operation": "buff",
+        "target": "friendly_murloc",
+        "attack": 0,
+        "health": 0,
+        "keywords": ["poisonous"]
+      }
+    ],
+    "15.6:61": [
+      {
+        "trigger": "deathrattle",
+        "operation": "summon",
+        "count": 2,
+        "token": {
+          "name": "Hyena",
+          "attack": 2,
+          "health": 2
+        }
+      }
+    ],
+    "15.6:64": [
+      {
+        "trigger": "deathrattle",
+        "operation": "summon",
+        "count": 1,
+        "token": {
+          "name": "Robosaur",
+          "attack": 8,
+          "health": 8
+        }
+      }
+    ],
+    "15.6:66": [
+      {
+        "trigger": "deathrattle",
+        "operation": "summon",
+        "count": 3,
+        "token": {
+          "name": "Murloc",
+          "attack": 1,
+          "health": 1
+        }
+      }
+    ],
+    "15.6:70": [
+      {
+        "trigger": "battlecry",
+        "operation": "buff",
+        "target": "friendly_taunt_minions",
+        "attack": 2,
+        "health": 2
+      }
+    ],
+    "15.6:73": [
+      {
+        "trigger": "passive",
+        "operation": "keyword",
+        "target": "self",
+        "keyword": "poisonous"
+      }
+    ],
+    "15.6:75": [
+      {
+        "trigger": "passive",
+        "operation": "keyword",
+        "target": "self",
+        "keyword": "taunt"
+      },
+      {
+        "trigger": "deathrattle",
+        "operation": "summon",
+        "count": 3,
+        "token": {
+          "name": "Voidwalker",
+          "attack": 1,
+          "health": 3,
+          "keywords": ["taunt"]
+        }
+      }
+    ]
+  },
+  "overrides": []
+}
