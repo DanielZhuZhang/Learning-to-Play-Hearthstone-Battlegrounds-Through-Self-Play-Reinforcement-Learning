@@ -1,5 +1,17 @@
 # Project Plan
 
+## Current stage: first reinforcement-learning experiment
+
+The Week 1 sections below document the simulator milestone. The next stage adds
+a player-view RL adapter, fixed-opponent baselines, a from-scratch PyTorch PPO
+learner, and frozen-policy evaluation. See `RL_GUIDE.md` for commands, observation
+and action contracts, experimental limitations, and references. The historical
+Week 1 exclusion of training does not apply to this new stage.
+
+Historical-checkpoint self-play remains the next experiment after validating
+fixed-opponent training. Do not report a short training smoke test as evidence
+of learned strategic improvement.
+
 ## Purpose
 
 Build a configurable Battlegrounds simulation. The Week 1 engineering goal is

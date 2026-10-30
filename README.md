@@ -1,5 +1,40 @@
 # Learning-to-Play-Hearthstone-Battlegrounds-Through-Self-Play-Reinforcement-Learning
 
+Research prototype for learning recruitment decisions in a simplified eight-player
+Battlegrounds game. The current profile contains 29 selected cards. The next-stage
+implementation adds a player-view RL adapter, random/greedy/upgrade baselines,
+from-scratch PyTorch PPO, and reproducible evaluation. Historical-policy self-play
+is planned, not yet implemented. Results apply only to the simplified rules.
+
+## Setup and first experiment
+
+Run from the repository root with Python 3.11 or newer:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev,rl]"
+python -m pytest -q
+python -m hsbg.train --updates 2 --episodes-per-update 2 --output runs/smoke
+python -m hsbg.evaluate --policy ppo --checkpoint runs/smoke/policy.pt --games 16 --seed 100000 --output runs/ppo_eval.json
+python -m hsbg.evaluate --policy greedy --games 16 --seed 100000 --output runs/greedy_eval.json
+```
+
+On Windows activate with `.venv\Scripts\activate`. For the desktop simulator
+alone, install with `python -m pip install -e .`; PyTorch is optional. A short
+training run checks the pipeline and does not establish competitive performance.
+See [RL_GUIDE.md](RL_GUIDE.md) for the complete experimental protocol.
+
+## Code organization
+
+- `hsbg/data/`: workbook import, selected cards, effects, and profile validation.
+- `hsbg/game/`: shared recruit/combat engine, legality, pool, and deterministic replay.
+- `hsbg/gui.py`, `hsbg/play.py`: optional desktop client.
+- `hsbg/learning.py`: RL environment, observation/action encoding, and rule baselines.
+- `hsbg/ppo.py`, `hsbg/train.py`: policy/value network, GAE, PPO, and training CLI.
+- `hsbg/evaluate.py`: fixed-policy evaluation and per-game JSON results.
+- `tests/`: engine tests plus RL interface and learning-update checks.
+
 ## Desktop client
 
 Play as a selected seat against random bots, or use spectator mode to watch an
@@ -14,8 +49,8 @@ The client uses the shared match engine and random bots. It labels the shop,
 hand, and board with minion stats, explains the available actions, and records
 plain-language recruit and combat events. It supports pausing, single-action
 stepping, playback speed adjustment, and replaying the most recently completed
-match. Week 1 intentionally does not include reinforcement learning or
-performance-evaluation tools; the current game-rule values remain configurable
+match. RL training and evaluation use the separate headless commands above;
+the GUI still uses random bots. The current game-rule values remain configurable
 prototype assumptions rather than confirmed historical patch rules.
 
 ### Basic controls

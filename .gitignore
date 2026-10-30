@@ -27,3 +27,7 @@ Thumbs.db
 
 # Excel/Office lock files created while a workbook is open
 ~$*
+
+# Local RL checkpoints and experiment outputs
+runs/
+*.pt
