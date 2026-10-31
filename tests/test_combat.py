@@ -202,3 +202,53 @@ def test_deathrattle_buff_is_temporary_to_combat_state() -> None:
     assert friend.max_health == 21
     assert second.board[1].attack_bonus == 0
     assert first.health == 30
+
+
+def test_recorded_frames_do_not_change_the_outcome_and_end_at_survivors() -> None:
+    cards = (
+        _card("egg", attack=1, health=3),
+        _card("brute", attack=3, health=2),
+    )
+    bindings = (
+        CardEffectBinding(
+            "egg",
+            (
+                CardEffect(
+                    EffectTrigger.DEATHRATTLE,
+                    SummonEffect(TokenSpec("Hatchling", 2, 2), 1),
+                ),
+            ),
+        ),
+    )
+    first = _player("first", "egg", "egg")
+    second = _player("second", "brute", "brute")
+
+    plain = resolve_combat(first, second, cards, bindings, random.Random(5), GameRules())
+    recorded = resolve_combat(
+        first,
+        second,
+        cards,
+        bindings,
+        random.Random(5),
+        GameRules(),
+        record_frames=True,
+    )
+
+    assert plain.frames == ()
+    assert recorded.events == plain.events
+    assert recorded.survivors_by_player == plain.survivors_by_player
+    assert recorded.frames[0].kind == "start"
+    assert recorded.frames[-1].kind == "end"
+    assert {"attack", "hit", "deaths", "deathrattle"} <= {
+        frame.kind for frame in recorded.frames
+    }
+    final_boards = tuple(survivors for _player_id, survivors in recorded.survivors_by_player)
+    assert recorded.frames[-1].boards == final_boards
+    summoned = [
+        minion
+        for frame in recorded.frames
+        for board in frame.boards
+        for minion in board
+        if minion.token
+    ]
+    assert summoned and all(minion.token_name == "Hatchling" for minion in summoned)

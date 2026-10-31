@@ -191,3 +191,44 @@ def test_simultaneous_combat_eliminations_receive_a_shared_placement() -> None:
     }
     assert len(eliminated) == 2
     assert len(eliminated_places) == 1
+
+
+def test_targeted_battlecry_offers_one_play_per_target_and_buffs_only_it() -> None:
+    profile, cards = _content()
+    engine = GameEngine(profile, cards, seed=4)
+    player = engine.state.players[0]
+    custom = replace(
+        player,
+        minions=(
+            MinionInstance("demon-1", "15.6:3", MinionZone.BOARD),
+            MinionInstance("beast-1", "15.6:1", MinionZone.BOARD),
+            MinionInstance("demon-2", "15.6:3", MinionZone.BOARD),
+            MinionInstance("overseer", "15.6:17", MinionZone.HAND),
+        ),
+    )
+    engine.state = replace(
+        engine.state, players=(custom,) + engine.state.players[1:]
+    )
+
+    plays = [
+        action
+        for action in engine.legal_actions(player.player_id)
+        if action.kind is RecruitActionKind.PLAY
+    ]
+    assert plays == [
+        RecruitAction(RecruitActionKind.PLAY, "overseer", "demon-1"),
+        RecruitAction(RecruitActionKind.PLAY, "overseer", "demon-2"),
+    ]
+    with pytest.raises(InvalidActionError):
+        engine.apply_action(
+            player.player_id, RecruitAction(RecruitActionKind.PLAY, "overseer")
+        )
+
+    engine.apply_action(player.player_id, plays[1])
+
+    board = {minion.instance_id: minion for minion in engine.state.players[0].board}
+    assert (board["demon-2"].attack_bonus, board["demon-2"].health_bonus) == (2, 2)
+    assert board["demon-1"].attack_bonus == 0
+    assert board["beast-1"].attack_bonus == 0
+    assert board["overseer"].attack_bonus == 0
+    assert engine.action_history[-1].action.effect_target_id == "demon-2"

@@ -12,6 +12,14 @@ from hsbg.game.combat import CombatEvent, CombatResult
 from hsbg.game.engine import ActionRecord, GameEngine, MatchReplay
 from hsbg.game.legal import RecruitAction, RecruitActionKind
 from hsbg.game.state import MinionInstance, PlayerState, ShopOffer
+from hsbg.ui_common import (
+    ALL_PLAYERS,
+    EventLine,
+    card_name,
+    describe_action,
+    minion_name,
+    visible_lines,
+)
 
 
 class MatchWindow:
@@ -23,6 +31,7 @@ class MatchWindow:
         selected_cards: Sequence[CardRecord],
         seed: int,
         human_player_id: str | None,
+        pov_player_id: str | None = None,
     ) -> None:
         self.profile = profile
         self.cards = tuple(selected_cards)
@@ -35,13 +44,16 @@ class MatchWindow:
         self._replay_index = 0
         self._replaying = False
         self.paused = False
-        self._pending_event_lines: list[str] = []
+        self._pending_event_lines: list[EventLine] = []
         self._bot_action_turn = self.engine.state.turn
         self._bot_action_counts: dict[str, int] = {}
         self._max_bot_actions_per_turn = 32
-        self._event_lines: list[str] = [
-            "Welcome! During Recruit, spend gold to build your board. "
-            "When everyone ends Recruit, minions fight automatically."
+        self._event_lines: list[EventLine] = [
+            (
+                "Welcome! During Recruit, spend gold to build your board. "
+                "When everyone ends Recruit, minions fight automatically.",
+                None,
+            )
         ]
 
         self.root = tk.Tk()
@@ -49,6 +61,9 @@ class MatchWindow:
         self.root.minsize(980, 720)
         self.status = tk.StringVar()
         self.speed = tk.IntVar(value=400)
+        self.pov_choice = tk.StringVar(
+            value=pov_player_id or human_player_id or ALL_PLAYERS
+        )
         self.status_label = ttk.Label(
             self.root, textvariable=self.status, font=("Segoe UI", 12, "bold")
         )
@@ -108,6 +123,17 @@ class MatchWindow:
             orient=tk.HORIZONTAL,
             length=180,
         ).pack(side=tk.LEFT)
+        ttk.Label(controls, text="View as").pack(side=tk.LEFT, padx=(12, 4))
+        pov_selector = ttk.Combobox(
+            controls,
+            textvariable=self.pov_choice,
+            values=(ALL_PLAYERS,)
+            + tuple(player.player_id for player in self.engine.state.players),
+            state="readonly",
+            width=12,
+        )
+        pov_selector.pack(side=tk.LEFT)
+        pov_selector.bind("<<ComboboxSelected>>", lambda _event: self._render())
         self.replay_button = ttk.Button(
             controls, text="Replay last match", command=self._start_replay
         )
@@ -119,9 +145,23 @@ class MatchWindow:
         """Enter Tk's event loop."""
         self.root.mainloop()
 
+    @property
+    def _pov(self) -> str | None:
+        choice = self.pov_choice.get()
+        return None if choice == ALL_PLAYERS else choice
+
+    def _flush_hidden_pending(self) -> None:
+        pov = self._pov
+        while self._pending_event_lines and not visible_lines(
+            self._pending_event_lines[:1], pov
+        ):
+            self._event_lines.append(self._pending_event_lines.pop(0))
+
     def _tick(self) -> None:
+        self._flush_hidden_pending()
         if self._pending_event_lines and not self.paused:
             self._event_lines.append(self._pending_event_lines.pop(0))
+            self._flush_hidden_pending()
             self._render()
             self.root.after(max(self.speed.get(), 1), self._tick)
             return
@@ -247,8 +287,10 @@ class MatchWindow:
     def _single_step(self) -> None:
         if not self.paused:
             return
+        self._flush_hidden_pending()
         if self._pending_event_lines:
             self._event_lines.append(self._pending_event_lines.pop(0))
+            self._flush_hidden_pending()
             self._render()
             return
         self._step()
@@ -268,12 +310,15 @@ class MatchWindow:
         self._replaying = True
         self.paused = False
         self._pending_event_lines.clear()
-        self._event_lines = ["Replaying the recorded match from its first action."]
+        self._event_lines = [
+            ("Replaying the recorded match from its first action.", None)
+        ]
         self.pause_button.configure(text="Pause")
         self._render()
         self.root.after(0, self._tick)
 
     def _render(self) -> None:
+        pov = self._pov
         if self.engine.finished:
             placement_text = ", ".join(
                 f"{player_id}: {place}" for player_id, place in self.engine.placements
@@ -285,17 +330,28 @@ class MatchWindow:
                 if self.engine.pending_player_ids
                 else "none"
             )
+            if pov is not None and actor not in {pov, "none"}:
+                actor = "waiting for other players"
             phase = "replay" if self._replaying else self.engine.state.phase.value
             self.status.set(f"Turn {self.engine.state.turn} | {phase} | Next: {actor}")
 
         lines = []
         for player in self.engine.state.players:
             status = "eliminated" if player.health <= 0 else "alive"
+            if pov is not None and player.player_id != pov:
+                lines.append(
+                    f"{player.player_id:10} {status:10}  Health {player.health:>3}  "
+                    f"Armor {player.armor:>2}  Tavern {player.tavern_tier}"
+                )
+                continue
+            marker = ""
+            if pov is not None:
+                marker = "  <- you" if pov == self.human_player_id else "  <- viewing"
             lines.append(
                 f"{player.player_id:10} {status:10}  Health {player.health:>3}  "
                 f"Armor {player.armor:>2}  Gold {player.gold:>2}  "
                 f"Tavern {player.tavern_tier}  Board {len(player.board)}/"
-                f"{self.profile.rules.board_limit}"
+                f"{self.profile.rules.board_limit}{marker}"
             )
         self.lobby.configure(state=tk.NORMAL)
         self.lobby.delete("1.0", tk.END)
@@ -306,10 +362,16 @@ class MatchWindow:
         self._render_actions()
 
     def _render_player(self) -> None:
-        if self.human_player_id is None:
+        viewed_id = self._pov or self.human_player_id
+        self.player_frame.configure(
+            text="Your tavern"
+            if viewed_id is None or viewed_id == self.human_player_id
+            else f"{viewed_id}'s tavern"
+        )
+        if viewed_id is None:
             text = "Spectator mode: watch the lobby above; combats are explained below."
         else:
-            player = self.engine.player_state(self.human_player_id)
+            player = self.engine.player_state(viewed_id)
             rules = self.profile.rules
             next_upgrade = (
                 rules.tavern_upgrade_costs[player.tavern_tier - 1]
@@ -340,7 +402,9 @@ class MatchWindow:
     def _render_events(self) -> None:
         self.event_log.configure(state=tk.NORMAL)
         self.event_log.delete("1.0", tk.END)
-        self.event_log.insert(tk.END, "\n".join(self._event_lines[-100:]))
+        self.event_log.insert(
+            tk.END, "\n".join(visible_lines(self._event_lines, self._pov)[-100:])
+        )
         self.event_log.see(tk.END)
         self.event_log.configure(state=tk.DISABLED)
 
@@ -350,48 +414,10 @@ class MatchWindow:
         player_before: PlayerState | None = None,
     ) -> None:
         player = player_before or self.engine.player_state(record.player_id)
-        action = record.action
-        actor = "You" if record.player_id == self.human_player_id else record.player_id
-        if action.kind is RecruitActionKind.BUY:
-            offer = next(
-                offer for offer in player.shop if offer.offer_id == action.target_id
-            )
-            message = (
-                f"{actor} bought {self._card_name(offer.definition_id)} "
-                f"for {self.profile.rules.buy_cost} gold."
-            )
-        elif action.kind is RecruitActionKind.PLAY:
-            minion = next(
-                minion
-                for minion in player.hand
-                if minion.instance_id == action.target_id
-            )
-            message = f"{actor} played {self._minion_name(minion)} onto the board."
-        elif action.kind is RecruitActionKind.SELL:
-            minion = next(
-                minion
-                for minion in player.board
-                if minion.instance_id == action.target_id
-            )
-            message = (
-                f"{actor} sold {self._minion_name(minion)} for "
-                f"{self.profile.rules.sell_refund} gold."
-            )
-        elif action.kind is RecruitActionKind.REROLL:
-            message = (
-                f"{actor} rerolled the shop for {self.profile.rules.reroll_cost} gold."
-            )
-        elif action.kind is RecruitActionKind.FREEZE:
-            message = f"{actor} froze the shop; these offers stay next turn."
-        elif action.kind is RecruitActionKind.UNFREEZE:
-            message = f"{actor} unfroze the shop."
-        elif action.kind is RecruitActionKind.UPGRADE_TAVERN:
-            message = f"{actor} upgraded to Tavern Tier {player.tavern_tier + 1}."
-        elif action.kind is RecruitActionKind.REORDER_BOARD:
-            message = f"{actor} changed the board attack order."
-        else:
-            message = f"{actor} ended Recruit and is ready for combat."
-        self._append_event(message)
+        message = describe_action(
+            record, player, self.profile.rules, self.card_by_id, self.human_player_id
+        )
+        self._append_event(message, frozenset({record.player_id}))
 
     def _log_new_combats(self, previous_count: int) -> None:
         for result in self.engine.combat_history[previous_count:]:
@@ -417,14 +443,17 @@ class MatchWindow:
         for player_id, survivors in result.survivors_by_player:
             names = (
                 ", ".join(
-                    f"{'summoned token' if minion.token else self._card_name(minion.definition_id)} "
+                    f"{minion.token_name or 'summoned token' if minion.token else self._card_name(minion.definition_id)} "
                     f"({minion.attack}/{minion.health})"
                     for minion in survivors
                 )
                 or "no surviving minions"
             )
             lines.append(f"  {player_id} survivors: {names}.")
-        self._pending_event_lines.extend(lines)
+        combatants = frozenset(
+            player_id for player_id, _survivors in result.survivors_by_player
+        )
+        self._pending_event_lines.extend((line, combatants) for line in lines)
 
     def _describe_combat_event(self, event: CombatEvent) -> str | None:
         source = self._instance_name(event.source_instance_id)
@@ -451,8 +480,10 @@ class MatchWindow:
             return "The combat stalled; no minions could make progress."
         return None
 
-    def _append_event(self, message: str) -> None:
-        self._event_lines.append(message)
+    def _append_event(
+        self, message: str, players: frozenset[str] | None = None
+    ) -> None:
+        self._event_lines.append((message, players))
 
     def _render_actions(self) -> None:
         for child in self.action_frame.winfo_children():
@@ -506,6 +537,16 @@ class MatchWindow:
                 for minion in player.hand
                 if minion.instance_id == action.target_id
             )
+            target = next(
+                (
+                    entry
+                    for entry in player.board
+                    if entry.instance_id == action.effect_target_id
+                ),
+                None,
+            )
+            if target is not None:
+                return f"Play {self._minion_name(minion)} on {self._minion_name(target)}"
             return f"Play {self._minion_name(minion)}"
         if action.kind is RecruitActionKind.SELL:
             minion = next(
@@ -529,8 +570,7 @@ class MatchWindow:
         return action.kind.value.replace("_", " ").title()
 
     def _card_name(self, card_id: str) -> str:
-        card = self.card_by_id.get(card_id)
-        return card.name if card is not None else card_id
+        return card_name(card_id, self.card_by_id)
 
     def _format_shop(self, offers: Sequence[ShopOffer]) -> str:
         if not offers:
@@ -563,9 +603,7 @@ class MatchWindow:
         return f"{attack}/{health}"
 
     def _minion_name(self, minion: MinionInstance) -> str:
-        if minion.token_spec is not None:
-            return minion.token_spec.name
-        return self._card_name(minion.definition_id)
+        return minion_name(minion, self.card_by_id)
 
     def _minion_description(self, minion: MinionInstance) -> str:
         if minion.token_spec is not None:
@@ -598,6 +636,9 @@ def launch_gui(
     seed: int,
     *,
     human_player_id: str | None = "player-1",
+    pov_player_id: str | None = None,
 ) -> None:
     """Launch human-versus-random-bots or all-random spectator mode."""
-    MatchWindow(profile, selected_cards, seed, human_player_id).run()
+    MatchWindow(
+        profile, selected_cards, seed, human_player_id, pov_player_id
+    ).run()

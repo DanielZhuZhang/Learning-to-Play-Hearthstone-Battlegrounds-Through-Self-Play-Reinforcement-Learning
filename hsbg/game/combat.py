@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import random
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from hsbg.data.models import (
@@ -42,6 +42,22 @@ class CombatMinionResult:
     max_health: int
     keywords: tuple[MinionKeyword, ...]
     token: bool
+    token_name: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CombatFrame:
+    """Both boards after one combat step, for step-by-step visualisation.
+
+    ``boards`` follows the ``resolve_combat`` argument order. Minions killed in
+    the step are still present (with health at or below zero) in ``hit`` frames
+    and are removed in the following ``deaths`` frame.
+    """
+
+    kind: str
+    source_instance_id: str | None
+    target_instance_id: str | None
+    boards: tuple[tuple[CombatMinionResult, ...], tuple[CombatMinionResult, ...]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +71,7 @@ class CombatResult:
     first_attacker_id: str | None
     survivors_by_player: tuple[tuple[str, tuple[CombatMinionResult, ...]], ...]
     events: tuple[CombatEvent, ...]
+    frames: tuple[CombatFrame, ...] = ()
 
 
 @dataclass(slots=True)
@@ -67,6 +84,7 @@ class _CombatMinion:
     keywords: list[MinionKeyword]
     token: bool
     dead: bool = False
+    token_name: str | None = None
 
 
 def resolve_combat(
@@ -76,6 +94,8 @@ def resolve_combat(
     effect_bindings: Sequence[CardEffectBinding],
     rng: random.Random,
     rules: GameRules,
+    *,
+    record_frames: bool = False,
 ) -> CombatResult:
     """Resolve alternating attacks, triggers, deaths, and survivor damage.
 
@@ -83,6 +103,9 @@ def resolve_combat(
     simultaneous; simultaneous Deathrattles resolve left-to-right for the
     player with initiative, then left-to-right for the other player. Tokens
     summoned during combat cannot exceed the configured board limit.
+
+    With ``record_frames`` the result also carries a board snapshot after each
+    step; recording never consumes randomness, so outcomes are unchanged.
     """
     if first_player.player_id == second_player.player_id:
         raise ValueError("Combat players must have distinct IDs.")
@@ -97,6 +120,12 @@ def resolve_combat(
     ]
     players = (first_player, second_player)
     events: list[CombatEvent] = []
+    frames: list[CombatFrame] = []
+
+    def record(kind: str, source: str | None = None, target: str | None = None) -> None:
+        if record_frames:
+            frames.append(CombatFrame(kind, source, target, _snapshot(boards)))
+
     if len(boards[0]) == len(boards[1]):
         active = rng.randrange(2)
     else:
@@ -104,6 +133,7 @@ def resolve_combat(
     first_attacker_id = players[active].player_id
     cursors = [0, 0]
     attacks = 0
+    record("start")
 
     while boards[0] and boards[1]:
         attacker_side = active
@@ -123,6 +153,7 @@ def resolve_combat(
         cursors[attacker_side] = attacker_index + 1
         attacks += 1
         events.append(CombatEvent("attack", attacker.instance_id, target.instance_id))
+        record("attack", attacker.instance_id, target.instance_id)
         attacker_had_shield = MinionKeyword.DIVINE_SHIELD in attacker.keywords
         target_had_shield = MinionKeyword.DIVINE_SHIELD in target.keywords
         progress = _deal_attack_damage(attacker, target, events)
@@ -148,6 +179,7 @@ def resolve_combat(
                 CombatEvent("poison", target.instance_id, attacker.instance_id)
             )
         _mark_health_deaths(boards, events)
+        record("hit", attacker.instance_id, target.instance_id)
         if not progress and not any(
             minion.dead for board in boards for minion in board
         ):
@@ -161,6 +193,7 @@ def resolve_combat(
             bindings_by_id,
             events,
             rules,
+            record,
         )
         active = defender_side
 
@@ -181,6 +214,7 @@ def resolve_combat(
             ),
         )
         events.append(CombatEvent("hero_damage", winner.player_id, loser_id, damage))
+    record("end")
 
     survivors = tuple(
         (
@@ -194,6 +228,7 @@ def resolve_combat(
                     max_health=minion.max_health,
                     keywords=tuple(minion.keywords),
                     token=minion.token,
+                    token_name=minion.token_name,
                 )
                 for minion in boards[side]
                 if not minion.dead
@@ -209,7 +244,30 @@ def resolve_combat(
         first_attacker_id=first_attacker_id,
         survivors_by_player=survivors,
         events=tuple(events),
+        frames=tuple(frames),
     )
+
+
+def _snapshot(
+    boards: list[list[_CombatMinion]],
+) -> tuple[tuple[CombatMinionResult, ...], tuple[CombatMinionResult, ...]]:
+    first, second = (
+        tuple(
+            CombatMinionResult(
+                instance_id=minion.instance_id,
+                definition_id=minion.definition_id,
+                attack=minion.attack,
+                health=minion.health,
+                max_health=minion.max_health,
+                keywords=tuple(minion.keywords),
+                token=minion.token,
+                token_name=minion.token_name,
+            )
+            for minion in board
+        )
+        for board in boards
+    )
+    return first, second
 
 
 def _build_board(
@@ -233,6 +291,7 @@ def _build_board(
                         )
                     ),
                     token=True,
+                    token_name=instance.token_spec.name,
                 )
             )
             continue
@@ -320,10 +379,13 @@ def _resolve_deaths(
     bindings_by_id: dict[str, CardEffectBinding],
     events: list[CombatEvent],
     rules: GameRules,
+    record: Callable[[str, str | None], None],
 ) -> None:
     dead_by_side = [[minion for minion in board if minion.dead] for board in boards]
     for board in boards:
         board[:] = [minion for minion in board if not minion.dead]
+    if any(dead_by_side):
+        record("deaths", None)
 
     for side in resolution_order:
         for dead in dead_by_side[side]:
@@ -356,6 +418,7 @@ def _resolve_deaths(
                         "Unsupported combat Deathrattle operation "
                         f"{type(effect.operation).__name__}."
                     )
+                record("deathrattle", dead.instance_id)
     for player, board in zip(players, boards, strict=True):
         if len(board) > rules.board_limit:
             raise EffectResolutionError(
@@ -381,6 +444,7 @@ def _deathrattle_summon(
             max_health=effect.token.health,
             keywords=list(effect.token.keywords),
             token=True,
+            token_name=effect.token.name,
         )
         board.append(token)
         events.append(CombatEvent("summon", dead.instance_id, token.instance_id))

@@ -6,9 +6,21 @@ Play as a selected seat against random bots, or use spectator mode to watch an
 all-bot match:
 
 ```powershell
+python -m pip install pygame        # once; needed for the default table view
 python -m hsbg.play --seed 7
 python -m hsbg.play --spectate --seed 7
+python -m hsbg.play --spectate --pov player-3   # follow one player only
+python -m hsbg.play --ui tk                     # original text client
 ```
+
+The default Pygame client draws a Battlegrounds-style table: Bob's Tavern,
+your warband and hand as cards with attack/health gems, a lobby of heroes, and
+an animated combat screen where attacks, damage numbers, Divine Shield pops,
+deaths, and Deathrattle summons play out step by step. Click a shop card to
+buy, a hand card to play, or a board minion to sell or move it; hover any card
+for its text. "View as" (or clicking a hero in the lobby) shows only that
+player's tavern, log, and combats. Space pauses, N steps, +/- change speed,
+and Esc skips a combat.
 
 The client uses the shared match engine and random bots. It labels the shop,
 hand, and board with minion stats, explains the available actions, and records

@@ -1,9 +1,13 @@
 from pathlib import Path
 
+import pytest
+
 from hsbg.data.profiles import load_profile
 from hsbg.data.selection import select_enabled_cards
 from hsbg.data.workbook import load_sheet
 from hsbg.game.effects import (
+    EffectResolutionError,
+    battlecry_target_options,
     play_minion_and_resolve_battlecry,
     resolve_battlecry,
 )
@@ -112,11 +116,81 @@ def test_battlecry_buff_only_affects_selected_matching_tribe() -> None:
         cards,
         profile.card_effects,
         profile.rules,
+        murloc.instance_id,
     )
 
     assert updated.minions[1].attack_bonus > murloc.attack_bonus
+    assert updated.minions[0] == source
     assert updated.minions[2] == beast
     assert player.minions == (source, murloc, beast)
+
+
+def test_targeted_battlecry_buffs_only_the_chosen_minion() -> None:
+    profile, cards = _profile_content()
+    first = MinionInstance("demon-1", "15.6:3", MinionZone.BOARD)
+    second = MinionInstance("demon-2", "15.6:3", MinionZone.BOARD)
+    overseer = MinionInstance("overseer", "15.6:17", MinionZone.HAND)
+    player = _player(first, second, overseer)
+
+    assert battlecry_target_options(
+        player, "overseer", cards, profile.card_effects
+    ) == ("demon-1", "demon-2")
+    updated = play_minion_and_resolve_battlecry(
+        player, "overseer", cards, profile.card_effects, profile.rules, "demon-2"
+    )
+
+    by_id = {minion.instance_id: minion for minion in updated.minions}
+    assert (by_id["demon-2"].attack_bonus, by_id["demon-2"].health_bonus) == (2, 2)
+    assert by_id["demon-1"] == first
+    assert (by_id["overseer"].attack_bonus, by_id["overseer"].health_bonus) == (0, 0)
+
+
+def test_targeted_battlecry_without_valid_target_does_nothing_to_itself() -> None:
+    profile, cards = _profile_content()
+    beast = MinionInstance("beast", "15.6:1", MinionZone.BOARD)
+    overseer = MinionInstance("overseer", "15.6:17", MinionZone.HAND)
+    player = _player(beast, overseer)
+
+    assert battlecry_target_options(
+        player, "overseer", cards, profile.card_effects
+    ) == ()
+    updated = play_minion_and_resolve_battlecry(
+        player, "overseer", cards, profile.card_effects, profile.rules
+    )
+
+    assert all(
+        (minion.attack_bonus, minion.health_bonus) == (0, 0)
+        for minion in updated.minions
+    )
+
+
+def test_targeted_battlecry_rejects_missing_or_invalid_targets() -> None:
+    profile, cards = _profile_content()
+    demon = MinionInstance("demon", "15.6:3", MinionZone.BOARD)
+    beast = MinionInstance("beast", "15.6:1", MinionZone.BOARD)
+    overseer = MinionInstance("overseer", "15.6:17", MinionZone.HAND)
+    player = _player(demon, beast, overseer)
+
+    for target in (None, "beast", "overseer"):
+        with pytest.raises(EffectResolutionError):
+            play_minion_and_resolve_battlecry(
+                player, "overseer", cards, profile.card_effects, profile.rules, target
+            )
+
+
+def test_untargeted_battlecry_rejects_a_target() -> None:
+    profile, cards = _profile_content()
+    demon = MinionInstance("demon", "15.6:3", MinionZone.BOARD)
+    crystalweaver = MinionInstance("weaver", "15.6:32", MinionZone.HAND)
+    player = _player(demon, crystalweaver)
+
+    assert battlecry_target_options(
+        player, "weaver", cards, profile.card_effects
+    ) is None
+    with pytest.raises(EffectResolutionError):
+        play_minion_and_resolve_battlecry(
+            player, "weaver", cards, profile.card_effects, profile.rules, "demon"
+        )
 
 
 def test_taunt_target_selector_reads_passive_profile_keywords() -> None:

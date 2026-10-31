@@ -107,3 +107,14 @@ def test_recruit_action_validates_target_contract(
 ) -> None:
     with pytest.raises(ValueError, match=message):
         RecruitAction(kind, target)
+
+
+def test_only_play_actions_may_carry_a_battlecry_target() -> None:
+    assert (
+        RecruitAction(RecruitActionKind.PLAY, "hand-1", "board-1").effect_target_id
+        == "board-1"
+    )
+    with pytest.raises(ValueError):
+        RecruitAction(RecruitActionKind.SELL, "board-1", "board-2")
+    with pytest.raises(ValueError):
+        RecruitAction(RecruitActionKind.PLAY, "hand-1", " ")

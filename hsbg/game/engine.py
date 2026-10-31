@@ -59,6 +59,8 @@ class GameEngine:
         selected_cards: Sequence[CardRecord],
         seed: int,
         player_ids: Sequence[str] | None = None,
+        *,
+        record_combat_frames: bool = False,
     ) -> None:
         if isinstance(seed, bool) or not isinstance(seed, int):
             raise ValueError("Match seed must be an integer.")
@@ -70,6 +72,7 @@ class GameEngine:
                 "Selected cards must match the profile's enabled IDs and order."
             )
         self.seed = seed
+        self.record_combat_frames = record_combat_frames
         self.rng = random.Random(seed)
         self._player_ids = tuple(
             player_ids
@@ -133,7 +136,9 @@ class GameEngine:
         player = self._player(player_id)
         if player.health <= 0:
             raise InvalidActionError(f"Player {player_id!r} has been eliminated.")
-        return get_legal_recruit_actions(player, self.rules)
+        return get_legal_recruit_actions(
+            player, self.rules, self.cards, self.profile.card_effects
+        )
 
     def player_state(self, player_id: str) -> PlayerState:
         """Return the current state snapshot for one configured player."""
@@ -167,6 +172,7 @@ class GameEngine:
                 self.cards,
                 self.profile.card_effects,
                 self.rules,
+                action.effect_target_id,
             )
             self._replace_player(updated)
         elif kind is RecruitActionKind.SELL:
@@ -314,6 +320,7 @@ class GameEngine:
                 self.profile.card_effects,
                 self.rng,
                 self.rules,
+                record_frames=self.record_combat_frames,
             )
             results.append(result)
             if result.loser_id is not None:
@@ -335,6 +342,7 @@ class GameEngine:
                 self.profile.card_effects,
                 self.rng,
                 self.rules,
+                record_frames=self.record_combat_frames,
             )
             results.append(result)
             if result.loser_id == ghost_player_id:

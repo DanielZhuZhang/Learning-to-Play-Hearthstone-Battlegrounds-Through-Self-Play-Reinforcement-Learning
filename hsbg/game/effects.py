@@ -25,14 +25,96 @@ class EffectResolutionError(ValueError):
     """Raised when an effect cannot be resolved from the supplied profile data."""
 
 
+# "Give a friendly X ..." selectors: the player picks one other matching minion.
+SINGLE_TARGETS = frozenset(
+    {
+        EffectTarget.FRIENDLY_MURLOC,
+        EffectTarget.FRIENDLY_DEMON,
+        EffectTarget.FRIENDLY_MECH,
+        EffectTarget.FRIENDLY_BEAST,
+    }
+)
+
+
+def battlecry_target_options(
+    player: PlayerState,
+    source_instance_id: str,
+    cards: Sequence[CardRecord],
+    effect_bindings: Sequence[CardEffectBinding],
+) -> tuple[str, ...] | None:
+    """Board minions a targeted Battlecry may choose, in board order.
+
+    Returns ``None`` when the minion has no targeted Battlecry, and an empty
+    tuple when it has one but no other friendly minion is a valid target.
+    The source minion itself is never a valid target.
+    """
+    source = next(
+        (minion for minion in player.minions if minion.instance_id == source_instance_id),
+        None,
+    )
+    if source is None:
+        raise EffectResolutionError(
+            f"Battlecry source {source_instance_id!r} is not owned by the player."
+        )
+    binding = next(
+        (entry for entry in effect_bindings if entry.card_id == source.definition_id),
+        None,
+    )
+    if binding is None:
+        return None
+    targets = [
+        effect.operation.target
+        for effect in binding.effects
+        if effect.trigger is EffectTrigger.BATTLECRY
+        and isinstance(effect.operation, BuffEffect)
+        and effect.operation.target in SINGLE_TARGETS
+    ]
+    if not targets:
+        return None
+    cards_by_id = {card.card_id: card for card in cards}
+    bindings_by_id = {entry.card_id: entry for entry in effect_bindings}
+    return tuple(
+        minion.instance_id
+        for minion in player.board
+        if minion.instance_id != source_instance_id
+        and any(
+            _matches_target(
+                target, minion, cards_by_id, bindings_by_id, source_instance_id
+            )
+            for target in targets
+        )
+    )
+
+
 def resolve_battlecry(
     player: PlayerState,
     source_instance_id: str,
     cards: Sequence[CardRecord],
     effect_bindings: Sequence[CardEffectBinding],
     rules: GameRules,
+    target_id: str | None = None,
 ) -> PlayerState:
-    """Apply one played minion's declared Battlecry effects in profile order."""
+    """Apply one played minion's declared Battlecry effects in profile order.
+
+    ``target_id`` is the chosen minion for a targeted Battlecry. It is required
+    whenever a valid target exists; with no valid target the buff does nothing.
+    """
+    options = battlecry_target_options(
+        player, source_instance_id, cards, effect_bindings
+    )
+    if options is None and target_id is not None:
+        raise EffectResolutionError(
+            f"Battlecry source {source_instance_id!r} does not take a target."
+        )
+    if options and target_id is None:
+        raise EffectResolutionError(
+            f"Battlecry source {source_instance_id!r} requires a target."
+        )
+    if options is not None and target_id is not None and target_id not in options:
+        raise EffectResolutionError(
+            f"{target_id!r} is not a valid Battlecry target."
+        )
+
     source = next(
         (minion for minion in player.board if minion.instance_id == source_instance_id),
         None,
@@ -73,6 +155,7 @@ def resolve_battlecry(
                 source.instance_id,
                 cards,
                 effect_bindings,
+                target_id,
             )
         elif isinstance(operation, DamageHeroEffect):
             updated = _damage_hero(updated, operation.amount)
@@ -121,14 +204,17 @@ def _apply_buff(
     source_instance_id: str,
     cards: Sequence[CardRecord],
     effect_bindings: Sequence[CardEffectBinding],
+    target_id: str | None,
 ) -> PlayerState:
     cards_by_id = {card.card_id: card for card in cards}
     bindings_by_id = {binding.card_id: binding for binding in effect_bindings}
     instances_by_id = {minion.instance_id: minion for minion in player.board}
+    single = effect.target in SINGLE_TARGETS
     matching_ids = tuple(
         minion.instance_id
         for minion in player.board
-        if _matches_target(
+        if (not single or minion.instance_id == target_id)
+        and _matches_target(
             effect.target,
             minion,
             cards_by_id,
@@ -236,7 +322,10 @@ def play_minion_and_resolve_battlecry(
     cards: Sequence[CardRecord],
     effect_bindings: Sequence[CardEffectBinding],
     rules: GameRules,
+    target_id: str | None = None,
 ) -> PlayerState:
     """Play a minion to the board, then execute its declared Battlecry."""
     played = play_minion(player, instance_id, rules)
-    return resolve_battlecry(played, instance_id, cards, effect_bindings, rules)
+    return resolve_battlecry(
+        played, instance_id, cards, effect_bindings, rules, target_id
+    )
