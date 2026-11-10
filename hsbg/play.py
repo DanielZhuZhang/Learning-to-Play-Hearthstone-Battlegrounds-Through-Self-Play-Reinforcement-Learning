@@ -5,9 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from hsbg.data.profiles import load_profile
-from hsbg.data.selection import apply_profile_overrides, select_enabled_cards
-from hsbg.data.workbook import load_sheet
+from hsbg.data.profiles import load_game_data
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -41,14 +39,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    profile = load_profile(args.profile)
-    cards = apply_profile_overrides(
-        profile,
-        select_enabled_cards(
-            profile,
-            load_sheet(PROJECT_ROOT / profile.workbook, profile.sheet),
-        ),
-    )
+    profile, cards = load_game_data(args.profile)
     seats = {f"player-{index + 1}" for index in range(profile.rules.player_count)}
     if not args.spectate and args.seat not in seats:
         parser.error(f"Seat {args.seat!r} is not configured in this lobby.")

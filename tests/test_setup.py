@@ -4,10 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from hsbg.data.models import CardRecord, CardSource
-from hsbg.data.profiles import load_profile
-from hsbg.data.selection import select_enabled_cards
-from hsbg.data.workbook import load_sheet
+from hsbg.data.models import CardRecord
+from hsbg.data.profiles import load_game_data
 from hsbg.game.config import GameRules
 from hsbg.game.pool import MinionPool, MinionPoolEntry
 from hsbg.game.setup import MatchSetupError, create_initial_match
@@ -30,17 +28,13 @@ def _card(card_id: str, tier: int) -> CardRecord:
     number = int(card_id.split(":")[1])
     return CardRecord(
         card_id=card_id,
-        source=CardSource(workbook="cards.xlsx", sheet="test", row=number + 1),
-        source_number=number,
         tier=tier,
-        stars="*",
         name=f"Card {number}",
         tribe="",
         card_type="",
         attack=1,
         health=1,
         text="",
-        source_values=(number, tier),
     )
 
 
@@ -133,12 +127,8 @@ def test_initial_match_setup_is_reproducible_for_a_seed() -> None:
     assert first_pool == second_pool
 
 
-def test_initial_match_uses_the_selected_workbook_profile() -> None:
-    profile = load_profile(PROJECT_ROOT / "data" / "profiles" / "initial-15.6.json")
-    selected_cards = select_enabled_cards(
-        profile,
-        load_sheet(PROJECT_ROOT / profile.workbook, profile.sheet),
-    )
+def test_initial_match_uses_the_selected_profile_cards() -> None:
+    profile, selected_cards = load_game_data(PROJECT_ROOT / "data" / "profiles" / "initial-15.6.json")
     player_ids = tuple(f"player-{index}" for index in range(8))
     offer_ids = tuple(
         tuple(f"{player_id}-offer-{slot}" for slot in range(1, 4))

@@ -2,9 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from hsbg.data.profiles import load_profile
-from hsbg.data.selection import select_enabled_cards
-from hsbg.data.workbook import load_sheet
+from hsbg.data.profiles import load_game_data
 from hsbg.game.effects import (
     EffectResolutionError,
     battlecry_target_options,
@@ -17,11 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _profile_content():
-    profile = load_profile(PROJECT_ROOT / "data" / "profiles" / "initial-15.6.json")
-    cards = select_enabled_cards(
-        profile,
-        load_sheet(PROJECT_ROOT / profile.workbook, profile.sheet),
-    )
+    profile, cards = load_game_data(PROJECT_ROOT / "data" / "profiles" / "initial-15.6.json")
     return profile, cards
 
 

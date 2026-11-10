@@ -1,4 +1,4 @@
-"""Typed models for source card data and explicit iteration selections."""
+"""Typed models for card definitions, their effects, and iteration profiles."""
 
 from __future__ import annotations
 
@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from hsbg.game.config import GameRules
-
-CellValue = str | int | float | bool | None
 
 
 class EffectTrigger(StrEnum):
@@ -154,112 +152,60 @@ class CardEffectBinding:
 
 
 @dataclass(frozen=True, slots=True)
-class CardSource:
-    """Location of a card record in its source workbook."""
-
-    workbook: str
-    sheet: str
-    row: int
-
-    def __post_init__(self) -> None:
-        if not self.workbook.strip():
-            raise ValueError("Card source workbook must not be empty.")
-        if not self.sheet.strip():
-            raise ValueError("Card source sheet must not be empty.")
-        if self.row < 2:
-            raise ValueError(
-                "Card source row must refer to a data row (row 2 or later)."
-            )
-
-
-@dataclass(frozen=True, slots=True)
 class CardRecord:
-    """Normalized card fields alongside the unchanged source worksheet values."""
+    """One card from the card library: stats, printed text, and runnable effects.
+
+    ``implemented`` cards have effects the engine can execute (possibly none);
+    other cards keep their stats and text for reference but cannot be enabled.
+    """
 
     card_id: str
-    source: CardSource
-    source_number: int
-    tier: int
-    stars: str | None
     name: str
+    tier: int
     tribe: str | None
     card_type: str | None
     attack: int
     health: int
-    text: str
-    source_values: tuple[CellValue, ...]
+    text: str = ""
+    implemented: bool = True
+    effects: tuple[CardEffect, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.card_id.strip():
             raise ValueError("Card ID must not be empty.")
-        if self.source_number < 1:
-            raise ValueError("Card source number must be positive.")
         if self.tier < 1:
             raise ValueError("Card tier must be positive.")
         if not self.name.strip():
             raise ValueError("Card name must not be empty.")
         if self.attack < 0 or self.health < 0:
             raise ValueError("Base attack and health must not be negative.")
-
-
-@dataclass(frozen=True, slots=True)
-class CardOverride:
-    """An intentional profile-specific replacement for selected card fields."""
-
-    card_id: str
-    reason: str
-    tier: int | None = None
-    tribe: str | None = None
-    card_type: str | None = None
-    attack: int | None = None
-    health: int | None = None
-    text: str | None = None
-
-    def __post_init__(self) -> None:
-        if not self.card_id.strip():
-            raise ValueError("Override card ID must not be empty.")
-        if not self.reason.strip():
-            raise ValueError("Every card override must include a reason.")
-        if self.tier is not None and self.tier < 1:
-            raise ValueError("Override tier must be positive.")
-        if self.attack is not None and self.attack < 0:
-            raise ValueError("Override attack must not be negative.")
-        if self.health is not None and self.health < 0:
-            raise ValueError("Override health must not be negative.")
+        if not self.implemented and self.effects:
+            raise ValueError("Unimplemented cards must not declare effects.")
 
 
 @dataclass(frozen=True, slots=True)
 class IterationProfile:
-    """Workbook source, enabled card IDs, and explicit team-owned overrides."""
+    """Rules plus the implemented card IDs that make up one iteration's pool.
+
+    ``card_effects`` is derived from the enabled cards' library entries, in
+    profile order, so game code can look effects up by card ID.
+    """
 
     iteration_id: str
-    workbook: str
-    sheet: str
+    cards_file: str
     enabled_card_ids: tuple[str, ...]
-    overrides: tuple[CardOverride, ...] = ()
     card_effects: tuple[CardEffectBinding, ...] = ()
     rules: GameRules = GameRules()
 
     def __post_init__(self) -> None:
         if not self.iteration_id.strip():
             raise ValueError("Iteration ID must not be empty.")
-        if not self.workbook.strip():
-            raise ValueError("Iteration workbook must not be empty.")
-        if not self.sheet.strip():
-            raise ValueError("Iteration sheet must not be empty.")
+        if not self.cards_file.strip():
+            raise ValueError("Iteration cards file must not be empty.")
         if len(set(self.enabled_card_ids)) != len(self.enabled_card_ids):
             raise ValueError("Enabled card IDs must not contain duplicates.")
         if any(not card_id.strip() for card_id in self.enabled_card_ids):
             raise ValueError("Enabled card IDs must not be empty.")
-        override_ids = [override.card_id for override in self.overrides]
-        if len(set(override_ids)) != len(override_ids):
-            raise ValueError("A profile may override each card ID at most once.")
-        unknown_override_ids = set(override_ids) - set(self.enabled_card_ids)
-        if unknown_override_ids:
-            unknown = ", ".join(sorted(unknown_override_ids))
-            raise ValueError(
-                f"Overrides must target enabled cards; not enabled: {unknown}."
-            )
         effect_ids = [binding.card_id for binding in self.card_effects]
         if len(set(effect_ids)) != len(effect_ids):
             raise ValueError(

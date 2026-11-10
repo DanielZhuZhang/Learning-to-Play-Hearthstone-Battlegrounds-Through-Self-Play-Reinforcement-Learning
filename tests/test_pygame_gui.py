@@ -4,9 +4,7 @@ import pytest
 
 pygame = pytest.importorskip("pygame")
 
-from hsbg.data.profiles import load_profile
-from hsbg.data.selection import apply_profile_overrides, select_enabled_cards
-from hsbg.data.workbook import load_sheet
+from hsbg.data.profiles import load_game_data
 from hsbg.game.legal import RecruitActionKind
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -17,13 +15,7 @@ def client_factory(monkeypatch):
     monkeypatch.setenv("SDL_VIDEODRIVER", "dummy")
     from hsbg.pygame_gui import PygameMatchClient
 
-    profile = load_profile(PROJECT_ROOT / "data" / "profiles" / "initial-15.6.json")
-    cards = apply_profile_overrides(
-        profile,
-        select_enabled_cards(
-            profile, load_sheet(PROJECT_ROOT / profile.workbook, profile.sheet)
-        ),
-    )
+    profile, cards = load_game_data(PROJECT_ROOT / "data" / "profiles" / "initial-15.6.json")
     clients = []
 
     def make(**kwargs):

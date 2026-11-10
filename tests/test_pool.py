@@ -4,9 +4,7 @@ from pathlib import Path
 import pytest
 
 from hsbg.data.models import CardRecord
-from hsbg.data.profiles import load_profile
-from hsbg.data.selection import select_enabled_cards
-from hsbg.data.workbook import load_sheet
+from hsbg.data.profiles import load_game_data
 from hsbg.game.config import GameRules
 from hsbg.game.pool import (
     MinionPool,
@@ -20,11 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _selected_cards() -> tuple[CardRecord, ...]:
-    profile = load_profile(PROJECT_ROOT / "data" / "profiles" / "initial-15.6.json")
-    return select_enabled_cards(
-        profile,
-        load_sheet(PROJECT_ROOT / profile.workbook, profile.sheet),
-    )
+    return load_game_data(PROJECT_ROOT / "data" / "profiles" / "initial-15.6.json")[1]
 
 
 def test_initial_pool_has_one_entry_per_enabled_card() -> None:

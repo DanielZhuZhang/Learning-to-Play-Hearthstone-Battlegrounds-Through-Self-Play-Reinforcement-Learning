@@ -8,11 +8,12 @@ version = "0.1.0"
 description = "Configurable Hearthstone Battlegrounds simulation research prototype"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["openpyxl>=3.1,<4"]
+dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 gui = ["pygame>=2.5"]
+rl = ["numpy>=1.24"]
 
 [tool.setuptools.packages.find]
 include = ["hsbg*"]

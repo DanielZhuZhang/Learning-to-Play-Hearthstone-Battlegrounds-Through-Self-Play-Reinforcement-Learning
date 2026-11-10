@@ -3,8 +3,8 @@
 ## Purpose
 
 Build a configurable Battlegrounds simulation. The Week 1 engineering goal is
-to make it easy to create and play specific game iterations: choose a
-spreadsheet patch/sheet, select which cards and heroes are enabled, configure
+to make it easy to create and play specific game iterations: choose cards from
+the JSON card library, select which cards and heroes are enabled, configure
 game parameters, and enable the mechanics needed for that iteration without
 rewriting the core engine.
 
@@ -22,8 +22,9 @@ Week 1.
 ## Week 1 goals
 
 1. Create the foundation of a flexible, data-driven match engine.
-2. Implement the first selected game iteration using the workbook as the card
-   data source and an explicit team-curated roster.
+2. Implement the first selected game iteration using the card library
+   (`data/cards.json`, originally imported from the workbook) and an explicit
+   team-curated roster.
 3. Add an optional GUI for playing one seat and watching bot matches.
 
 “Implement the game in its totality” means a complete match for the content and
@@ -35,13 +36,14 @@ pass.
 ## Core design principles
 
 - **Iteration profiles, not patch-specific engine forks:** use one shared engine
-  with a versioned data/profile bundle for each iteration. A profile identifies
-  its workbook sheet/data version, enabled cards/heroes, rules and parameters,
-  and supported mechanics.
-- **Spreadsheet-faithful base card data:** preserve the sheet's card identity,
-  name, tribe/type, tier, base stats, and printed text. Do not change source
-  values silently. Store deliberate team overrides separately and identify
-  them as overrides.
+  with a data/profile bundle for each iteration. A profile identifies its card
+  library file, enabled cards/heroes, rules and parameters, and supported
+  mechanics.
+- **One card library:** `data/cards.json` holds every card's identity, name,
+  tribe/type, tier, base stats, printed text, and structured effects in one
+  entry. Versions of a card from different patches are separate cards with
+  separate IDs. Change a card by editing its library entry, and say so in the
+  commit; there is no separate override layer.
 - **Explicit content selection:** keep the enabled-card/hero roster in a
   profile or manifest so the team can include/exclude content per iteration
   without editing simulation logic.
@@ -96,18 +98,17 @@ Keep this plan aligned with that Week 1 scope.
 - **Approval gate:** show this contract and request approval before scaffolding
   or writing implementation code.
 
-### Stage 1 — Project foundation and spreadsheet-backed profiles
+### Stage 1 — Project foundation and card-library-backed profiles
 
 - Scaffold the package, dependencies, test runner, and developer commands.
-- Load the chosen spreadsheet sheet into a normalized internal card model while
-  retaining source sheet/version and original values/text.
+- Load the card library into a normalized internal card model with each card's
+  stats, printed text, and structured effects.
 - Add a per-iteration manifest for selected/enabled cards and heroes plus
-  configuration and supported mechanics. Keep team selections and deliberate
-  overrides separate from imported base data.
+  configuration and supported mechanics. Keep team selections separate from
+  the card library.
 - Validate duplicate/missing IDs, invalid tiers/stats, missing references, and
   unknown structured effects with explicit errors.
-- Test profile loading, content inclusion/exclusion, overrides, and invalid
-  data.
+- Test profile loading, content inclusion/exclusion, and invalid data.
 - **Exit:** one iteration can be loaded and inspected reproducibly from its
   profile, with no card selection hidden in engine code.
 - **Approval gate:** explain schema and loader behavior; request approval before
@@ -195,6 +196,28 @@ Keep this plan aligned with that Week 1 scope.
 - Use one documented rules/config profile. Add another profile when a concrete
   iteration needs it, and test that profile switching changes data/configuration
   without changing shared engine code.
+
+### Decision (2026-11-06): JSON card library replaces runtime workbook loading
+
+The workbook → selection → override → profile-effects pipeline (Sections
+1A–1F below) was replaced to make card data easier to read and edit:
+
+- `data/cards.json` holds all 1,092 cards from the workbook's 13 sheets, keeping
+  the `sheet:row` IDs (e.g. `15.6:17`). Each entry has stats, printed text,
+  `implemented`, and (for implemented cards) its structured `effects`. 87 cards
+  are implemented: the 29-card initial roster plus 58 keyword-only cards
+  (Taunt / Divine Shield / Poisonous). The rest are reference only and cannot be
+  enabled.
+- Profiles hold only `iteration_id`, `cards_file`, `rules`, and
+  `enabled_card_ids`. `load_game_data(profile)` returns the profile and its
+  enabled cards; effect bindings are derived from the library.
+- `hsbg/data/workbook.py`, `hsbg/data/selection.py`, card overrides, source
+  coordinates, and the `openpyxl` dependency were removed. The workbook stays in
+  the repository as the original reference. Twenty seeded matches replayed
+  identically before and after the change.
+
+The section notes below describe the original implementation and are kept as
+history.
 
 ### Foundation implementation progress and next approval
 

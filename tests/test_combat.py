@@ -5,7 +5,6 @@ from hsbg.data.models import (
     CardEffect,
     CardEffectBinding,
     CardRecord,
-    CardSource,
     EffectTarget,
     EffectTrigger,
     KeywordEffect,
@@ -26,20 +25,15 @@ def _card(
     tribe: str | None = None,
     tier: int = 1,
 ) -> CardRecord:
-    number = len(card_id)
     return CardRecord(
         card_id=card_id,
-        source=CardSource("cards.xlsx", "test", number + 1),
-        source_number=number,
         tier=tier,
-        stars="*",
         name=card_id,
         tribe=tribe,
         card_type=tribe,
         attack=attack,
         health=health,
         text="",
-        source_values=(card_id, attack, health),
     )
 
 
