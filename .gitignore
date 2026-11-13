@@ -23,7 +23,9 @@ htmlcov/
 .vscode/
 .idea/
 .DS_Store
+.claude
 Thumbs.db
+docs/
 
 # Excel/Office lock files created while a workbook is open
 ~$*
