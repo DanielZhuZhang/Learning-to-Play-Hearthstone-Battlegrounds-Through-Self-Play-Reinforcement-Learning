@@ -68,6 +68,23 @@ obs, reward, terminated, truncated, info = env.step(index)  # index where mask i
   `choose_index(observation, mask, rng)` (e.g. a frozen copy of your policy
   for self-play). `env.engine` exposes the live match, including `to_replay()`.
 
+### Actor network
+
+`hsbg/actor.py` holds a PyTorch policy (needs `torch`, also in `.[rl]`). A
+shared card MLP embeds every shop, hand and board slot; a small transformer
+mixes them with a global token (economy, opponents, last combat); per-slot
+heads then score buy / play / play-on-target / sell / move, and the global
+token scores reroll, freeze, upgrade and end turn. Illegal actions are masked.
+
+```python
+from hsbg.actor import ActorNetwork, ActorPolicy
+
+actor = ActorNetwork.from_env(env)                     # ActorConfig() for sizes
+action, log_prob, entropy = actor.act(obs_tensor, mask_tensor)
+log_prob, entropy = actor.evaluate_actions(obs, mask, actions)  # e.g. PPO update
+env.opponents["player-2"] = ActorPolicy(actor)         # frozen self-play opponent
+```
+
 ## Cards and profiles
 
 All card data lives in one file, `data/cards.json`: 1,092 cards from every
