@@ -85,6 +85,13 @@ log_prob, entropy = actor.evaluate_actions(obs, mask, actions)  # e.g. PPO updat
 env.opponents["player-2"] = ActorPolicy(actor)         # frozen self-play opponent
 ```
 
+### Critic network and on-policy rollout buffer
+
+Run `python -m rl.critic_example` to collect two games with the actor and
+train the critic on their value targets. The [critic and sample memory
+specification](CRITIC_AND_SAMPLE_MEMORY.md) covers network dimensions,
+buffer fields, advantage estimation and the interface for PPO updates.
+
 ## Cards and profiles
 
 All card data lives in one file, `data/cards.json`: 1,092 cards from every
