@@ -6,13 +6,14 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from hsbg.actor import ActorConfig, ActorNetwork, ActorPolicy  # noqa: E402
+from hsbg.actor import ActorConfig, ActorNetwork  # noqa: E402
+from hsbg.selfplay import ActorPolicy  # noqa: E402
 from hsbg.data.profiles import load_game_data  # noqa: E402
 from hsbg.env import BattlegroundsEnv, IndexPolicy  # noqa: E402
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PROFILE = PROJECT_ROOT / "data" / "profiles" / "initial-15.6.json"
-SMALL = ActorConfig(d_model=32, num_heads=4, num_layers=1, feedforward_dim=64)
+SMALL = ActorConfig(hidden_sizes=(64, 64))
 
 
 @pytest.fixture(scope="module")
@@ -86,25 +87,7 @@ def test_act_and_evaluate_actions_agree(env, actor) -> None:
     assert torch.equal(greedy, actor(obs, mask).argmax(-1))
 
 
-def test_shop_logits_follow_shop_order(env, actor) -> None:
-    obs, info = env.reset(seed=4)
-    layout, encoder = env.action_layout, env.encoder
-    shop = encoder.sections["shop"]
-    blocks = obs[shop].reshape(layout.shop_slots, encoder.card_features).copy()
-    assert blocks[0, 0] == 1.0 and blocks[1, 0] == 1.0  # at least two shop cards
-
-    swapped = obs.copy()
-    swapped_blocks = blocks.copy()
-    swapped_blocks[[0, 1]] = swapped_blocks[[1, 0]]
-    swapped[shop] = swapped_blocks.reshape(-1)
-
-    before = actor(torch.as_tensor(obs))
-    after = actor(torch.as_tensor(swapped))
-    assert torch.allclose(before[layout.buy], after[layout.buy + 1], atol=1e-5)
-    assert torch.allclose(before[layout.buy + 1], after[layout.buy], atol=1e-5)
-
-
-def test_gradients_reach_every_head(env, content) -> None:
+def test_gradients_reach_every_layer(env, content) -> None:
     torch.manual_seed(0)
     actor = ActorNetwork.from_env(env, SMALL)
     obs, _ = _rollout_batch(env, 40)
@@ -123,38 +106,12 @@ def test_rejects_wrong_observation_or_mask_size(actor) -> None:
         )
 
 
-def test_targeted_play_adds_target_fit_to_the_card_play_score(env, actor) -> None:
-    layout = env.action_layout
-    obs, _ = _rollout_batch(env, 30)
-    with torch.no_grad():
-        torch.nn.init.zeros_(actor.target_query.weight)
-        torch.nn.init.zeros_(actor.target_query.bias)
-        logits = actor(obs)
-    play = logits[:, layout.play : layout.play_targeted]
-    targeted = logits[:, layout.play_targeted : layout.sell].reshape(
-        -1, layout.hand_slots, layout.board_slots
-    )
-    # With no target preference, every target of hand card h scores like playing h.
-    assert torch.allclose(targeted, play.unsqueeze(-1).expand_as(targeted), atol=1e-6)
-
-
 def test_train_and_eval_modes_agree(env, actor) -> None:
     obs, mask = _rollout_batch(env, 40)
     with torch.no_grad():
         eval_logits = actor.eval()(obs, mask)
         train_logits = actor.train()(obs, mask)
     assert torch.allclose(eval_logits[mask], train_logits[mask], atol=1e-5)
-
-
-def test_encode_exposes_shared_trunk(env, actor) -> None:
-    obs, _ = _rollout_batch(env, 5)
-    g, shop, hand, board = actor.encode(obs)
-    d = SMALL.d_model
-    layout = env.action_layout
-    assert g.shape == (obs.shape[0], d)
-    assert shop.shape == (obs.shape[0], layout.shop_slots, d)
-    assert hand.shape == (obs.shape[0], layout.hand_slots, d)
-    assert board.shape == (obs.shape[0], layout.board_slots, d)
 
 
 def test_actor_plays_full_episode_with_only_legal_actions(env, actor) -> None:
@@ -192,12 +149,14 @@ def test_actor_policy_is_an_index_policy_opponent(content, actor) -> None:
     assert play(5) == play(5)  # seeded matches stay reproducible
 
 
-def test_config_validation() -> None:
-    with pytest.raises(ValueError):
-        ActorConfig(d_model=30, num_heads=4)
+def test_config_exposes_dropout_for_rollout(env) -> None:
+    assert ActorNetwork.from_env(env).config.dropout == 0.0  # rollout.py reads this
 
 
-def test_default_config_parameter_count(env) -> None:
+def test_default_architecture(env) -> None:
     actor = ActorNetwork.from_env(env)
-    count = sum(p.numel() for p in actor.parameters())
-    assert 100_000 < count < 2_000_000
+    linears = [m for m in actor.layers if isinstance(m, torch.nn.Linear)]
+    assert [(m.in_features, m.out_features) for m in linears] == [
+        (env.observation_size, 256), (256, 256), (256, env.action_size)
+    ]
+    assert sum(p.numel() for p in actor.parameters()) == 371_312
