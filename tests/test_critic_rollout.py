@@ -44,7 +44,7 @@ def test_hand_calculated_advantages(lam, expected):
 def test_complete_games_match_actor_and_do_not_share_returns():
     torch.manual_seed(3)
     env = BattlegroundsEnv.from_profile(PROFILE)
-    actor = ActorNetwork.from_env(env, ActorConfig(d_model=16, num_layers=0)).eval()
+    actor = ActorNetwork.from_env(env, ActorConfig(hidden_sizes=(16,))).eval()
     critic = CriticNetwork.from_env(env)
     batch = collect_rollout(env, actor, critic, [0, 1], gamma=1.0, gae_lambda=1.0)
     ends = batch.terminated.nonzero().flatten().tolist()
@@ -70,7 +70,7 @@ def test_complete_games_match_actor_and_do_not_share_returns():
 
 def test_truncation_bootstraps_final_observation_before_reset(monkeypatch):
     env = BattlegroundsEnv.from_profile(PROFILE, include_card_identity=False)
-    actor = ActorNetwork.from_env(env, ActorConfig(d_model=16, num_layers=0)).eval()
+    actor = ActorNetwork.from_env(env, ActorConfig(hidden_sizes=(16,))).eval()
     critic = CriticNetwork.from_env(env)
     real_step = env.step
 
