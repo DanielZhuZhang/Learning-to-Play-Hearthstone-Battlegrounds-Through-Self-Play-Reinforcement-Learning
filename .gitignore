@@ -29,3 +29,6 @@ docs/
 
 # Excel/Office lock files created while a workbook is open
 ~$*
+
+# Training checkpoints (large binary model files)
+checkpoints/

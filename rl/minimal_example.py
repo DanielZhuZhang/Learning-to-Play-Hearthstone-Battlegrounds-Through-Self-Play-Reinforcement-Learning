@@ -9,36 +9,47 @@ Run from the repository root:
     python rl/minimal_example.py
 """
 
-import random
 import sys
 from pathlib import Path
 
 import numpy as np
+import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))  # lets the script import hsbg without installing it
 
 from hsbg.env import BattlegroundsEnv  # noqa: E402
+from hsbg.actor import ActorNetwork  # noqa: E402
 
+def choose_action(
+    observation: np.ndarray,
+    action_mask: np.ndarray,
+    actor: ActorNetwork,
+) -> int:
+    observation_tensor = torch.from_numpy(observation).float()
+    mask_tensor = torch.from_numpy(action_mask).bool()
 
-def choose_action(observation: np.ndarray, action_mask: np.ndarray, rng: random.Random) -> int:
-    """Your policy goes here. This one picks uniformly among legal actions."""
-    legal_indices = np.flatnonzero(action_mask)
-    return int(rng.choice(legal_indices))
+    with torch.no_grad():
+        action, _, _ = actor.act(
+            observation_tensor,
+            mask_tensor,
+            deterministic=False,
+        )
 
+    return int(action.item())
 
 def main() -> None:
     env = BattlegroundsEnv.from_profile(ROOT / "data" / "profiles" / "initial-15.6.json")
     print(f"observation size: {env.observation_size}, action size: {env.action_size}")
 
-    rng = random.Random(0)
+    actor = ActorNetwork.from_env(env).eval()
     observation, info = env.reset(seed=0)
     total_reward = 0.0
     steps = 0
     terminated = False
 
     while not terminated:
-        action = choose_action(observation, info["action_mask"], rng)
+        action = choose_action(observation, info["action_mask"], actor)
         if info["turn"] <= 2:  # print the first couple of turns only
             print(f"turn {info['turn']}: {env.describe_action(action)}")
 
