@@ -30,5 +30,7 @@ docs/
 # Excel/Office lock files created while a workbook is open
 ~$*
 
-# Training checkpoints (large binary model files)
-checkpoints/
+# Training checkpoints: only each run's ppo_latest.pt is committed (via Git LFS)
+checkpoints/**
+!checkpoints/**/
+!checkpoints/**/ppo_latest.pt

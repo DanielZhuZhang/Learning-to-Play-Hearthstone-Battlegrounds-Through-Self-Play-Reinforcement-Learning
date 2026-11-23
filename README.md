@@ -198,6 +198,12 @@ unseen seeds. Starting without `--resume` begins from random weights and
 overwrites files with the same names in that folder, so give each run its own
 directory.
 
+Only each run's `ppo_latest.pt` is committed, through [Git LFS](https://git-lfs.com)
+(intermediate `ppo_<iteration>.pt` files and logs stay local). Run
+`git lfs install` once before cloning or pulling; without it the `.pt` files
+arrive as small text pointers and fail to load (`git lfs pull` fixes that).
+To share an updated model, re-run `git add checkpoints` and commit.
+
 ### Self-play
 
 By default all 7 opponents are random bots. With `--self-play` they are frozen
