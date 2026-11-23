@@ -37,6 +37,23 @@ def main() -> None:
         default="pygame",
         help="pygame draws a game-like table with animated combat; tk is the text client.",
     )
+    parser.add_argument(
+        "--agent",
+        type=Path,
+        default=None,
+        help="PPO checkpoint (.pt) whose actor controls --agent-seats.",
+    )
+    parser.add_argument(
+        "--agent-seats",
+        default=None,
+        help="Comma-separated seats for the trained agent "
+        "(default: player-2 when playing, player-1 when spectating).",
+    )
+    parser.add_argument(
+        "--agent-greedy",
+        action="store_true",
+        help="Always take the agent's top choice instead of sampling like in training.",
+    )
     args = parser.parse_args()
 
     profile, cards = load_game_data(args.profile)
@@ -45,17 +62,38 @@ def main() -> None:
         parser.error(f"Seat {args.seat!r} is not configured in this lobby.")
     if args.pov is not None and args.pov not in seats:
         parser.error(f"POV player {args.pov!r} is not configured in this lobby.")
+    human = None if args.spectate else args.seat
+
+    agents = {}
+    if args.agent is not None:
+        if args.ui != "pygame":
+            parser.error("--agent is only supported with --ui pygame.")
+        if not args.agent.is_file():
+            parser.error(f"Checkpoint not found: {args.agent}")
+        default_seat = "player-1" if args.spectate else "player-2"
+        agent_seats = [s.strip() for s in (args.agent_seats or default_seat).split(",") if s.strip()]
+        for seat in agent_seats:
+            if seat not in seats:
+                parser.error(f"Agent seat {seat!r} is not configured in this lobby.")
+            if seat == human:
+                parser.error(f"Agent seat {seat!r} is your own seat.")
+        from hsbg.agent_bot import TrainedBot
+
+        bot = TrainedBot(args.agent, profile, cards, deterministic=args.agent_greedy)
+        agents = {seat: bot for seat in agent_seats}
+        print(f"Agent from {args.agent} (iteration {bot.iteration}) controls {', '.join(agent_seats)}")
+
     if args.ui == "pygame":
-        from hsbg.pygame_gui import launch_pygame_gui as launch_gui
+        from hsbg.pygame_gui import launch_pygame_gui
+
+        launch_pygame_gui(
+            profile, cards, args.seed,
+            human_player_id=human, pov_player_id=args.pov, agents=agents,
+        )
     else:
         from hsbg.gui import launch_gui
-    launch_gui(
-        profile,
-        cards,
-        args.seed,
-        human_player_id=None if args.spectate else args.seat,
-        pov_player_id=args.pov,
-    )
+
+        launch_gui(profile, cards, args.seed, human_player_id=human, pov_player_id=args.pov)
 
 
 if __name__ == "__main__":

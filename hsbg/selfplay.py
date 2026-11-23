@@ -46,3 +46,55 @@ class ActorPolicy:
         # Sample with the env's RNG so seeded matches stay reproducible.
         legal = np.flatnonzero(action_mask)
         return int(rng.choices(legal.tolist(), weights=probs[legal].tolist())[0])
+
+
+class SnapshotPool:
+    """The last ``max_size`` frozen copies of the learner, used as opponents.
+
+    ``add`` after each PPO update; ``assign`` before each rollout gives every
+    opponent seat a snapshot drawn uniformly from the pool. With
+    ``max_size=1`` every opponent is the previous iteration's actor.
+    """
+
+    def __init__(self, max_size: int, *, device: torch.device | str = "cpu") -> None:
+        if max_size < 1:
+            raise ValueError("Snapshot pool size must be positive.")
+        self.max_size = max_size
+        self.device = torch.device(device)
+        self.snapshots: list[tuple[int, ActorPolicy]] = []
+
+    def __len__(self) -> int:
+        return len(self.snapshots)
+
+    @property
+    def iterations(self) -> list[int]:
+        return [iteration for iteration, _ in self.snapshots]
+
+    def add(self, actor: ActorNetwork, iteration: int) -> None:
+        self.snapshots.append((iteration, ActorPolicy(actor, device=self.device)))
+        del self.snapshots[: -self.max_size]
+
+    def assign(
+        self, env, rng: random.Random, *, random_seats: int = 0
+    ) -> dict[str, int | None]:
+        """Set ``env.opponents``; returns seat -> snapshot iteration (None = random bot)."""
+        if not self.snapshots:
+            raise ValueError("Add at least one snapshot before assigning opponents.")
+        seats = [
+            f"player-{index + 1}"
+            for index in range(env.profile.rules.player_count)
+            if f"player-{index + 1}" != env.learner_id
+        ]
+        if not 0 <= random_seats <= len(seats):
+            raise ValueError(f"random_seats must be in [0, {len(seats)}].")
+        rng.shuffle(seats)
+        chosen: dict[str, int | None] = {}
+        for position, seat in enumerate(seats):
+            if position < random_seats:
+                env.opponents.pop(seat, None)
+                chosen[seat] = None
+            else:
+                iteration, policy = rng.choice(self.snapshots)
+                env.opponents[seat] = policy
+                chosen[seat] = iteration
+        return chosen

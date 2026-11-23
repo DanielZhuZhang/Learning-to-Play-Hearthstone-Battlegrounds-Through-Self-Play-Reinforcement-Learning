@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import pygame
 
@@ -26,6 +27,9 @@ from hsbg.game.engine import ActionRecord, GameEngine, MatchReplay
 from hsbg.game.legal import RecruitAction, RecruitActionKind
 from hsbg.game.state import MatchState, MinionInstance, PlayerState, ShopOffer
 from hsbg.ui_common import ALL_PLAYERS, EventLine, describe_action, visible_lines
+
+if TYPE_CHECKING:
+    from hsbg.agent_bot import TrainedBot
 
 WIDTH, HEIGHT = 1280, 760
 FPS = 60
@@ -139,7 +143,9 @@ class PygameMatchClient:
         seed: int,
         human_player_id: str | None,
         pov_player_id: str | None = None,
+        agents: Mapping[str, TrainedBot] | None = None,
     ) -> None:
+        self.agents = dict(agents or {})
         self.profile = profile
         self.rules = profile.rules
         self.cards = tuple(selected_cards)
@@ -279,6 +285,13 @@ class PygameMatchClient:
         choice = self.view_options[self.view_index]
         return None if choice == ALL_PLAYERS else choice
 
+    def _seat_tag(self, player_id: str) -> str:
+        if player_id == self.human_player_id:
+            return " (you)"
+        if player_id in self.agents:
+            return " (agent)"
+        return ""
+
     def _automatic_actor(self) -> str | None:
         pending = self.engine.pending_player_ids
         if not pending or self.engine.finished:
@@ -301,6 +314,17 @@ class PygameMatchClient:
         if self.engine.state.turn != self._bot_turn:
             self._bot_turn = self.engine.state.turn
             self._bot_counts.clear()
+        agent = self.agents.get(player_id)
+        if agent is not None:
+            count = self._bot_counts.get(player_id, 0)
+            if count >= agent.max_actions_per_turn:
+                self._apply(player_id, RecruitAction(RecruitActionKind.END_RECRUIT))
+                return
+            move = agent.choose_move(self.engine, player_id)
+            if move.action.kind is not RecruitActionKind.END_RECRUIT:
+                self._bot_counts[player_id] = count + 1
+            self._apply(player_id, move.action, move.board_order)
+            return
         legal = self.engine.legal_actions(player_id)
         if self._bot_counts.get(player_id, 0) >= MAX_BOT_ACTIONS_PER_TURN:
             action = next(a for a in legal if a.kind is RecruitActionKind.END_RECRUIT)
@@ -961,7 +985,7 @@ class PygameMatchClient:
             pygame.draw.rect(self.screen, PANEL, rect, border_radius=10)
             pygame.draw.rect(self.screen, GOLD if is_displayed else TABLE_EDGE, rect, 3 if is_displayed else 1, border_radius=10)
             self._draw_hero((rect.x + 38, rect.centery + 6), player.player_id, player, radius=24)
-            label = player.player_id + (" (you)" if player.player_id == self.human_player_id else "")
+            label = player.player_id + self._seat_tag(player.player_id)
             self._draw_text(label, 15, TEXT, (rect.x + 74, rect.y + 8), bold=True)
             if player.health <= 0:
                 place = placements.get(player.player_id)
@@ -1343,7 +1367,7 @@ class PygameMatchClient:
         self._draw_text("Match over", 26, GOLD, (rect.centerx, rect.y + 28), bold=True, anchor="center")
         y = rect.y + 62
         for player_id, place in sorted(self.engine.placements, key=lambda item: item[1]):
-            label = player_id + (" (you)" if player_id == self.human_player_id else "")
+            label = player_id + self._seat_tag(player_id)
             self._draw_text(f"#{place}  {label}", 17, TEXT if place > 1 else GOLD, (rect.x + 40, y), bold=place == 1)
             y += 26
 
@@ -1422,6 +1446,9 @@ def launch_pygame_gui(
     *,
     human_player_id: str | None = "player-1",
     pov_player_id: str | None = None,
+    agents: Mapping[str, TrainedBot] | None = None,
 ) -> None:
     """Open the table view for human-vs-bots or spectator play."""
-    PygameMatchClient(profile, selected_cards, seed, human_player_id, pov_player_id).run()
+    PygameMatchClient(
+        profile, selected_cards, seed, human_player_id, pov_player_id, agents
+    ).run()
