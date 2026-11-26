@@ -34,3 +34,6 @@ docs/
 checkpoints/**
 !checkpoints/**/
 !checkpoints/**/ppo_latest.pt
+
+# SLURM job logs
+logs/
