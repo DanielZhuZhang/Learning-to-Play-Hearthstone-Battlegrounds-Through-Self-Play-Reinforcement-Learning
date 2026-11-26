@@ -79,10 +79,10 @@ def concat_buffers(buffers: Sequence[RolloutBuffer]) -> RolloutBuffer:
 _WORKER_ENV: BattlegroundsEnv | None = None
 
 
-def _init_worker(profile_path: str) -> None:
+def _init_worker(profile_path: str, env_kwargs: dict[str, Any]) -> None:
     global _WORKER_ENV
     torch.set_num_threads(1)
-    _WORKER_ENV = BattlegroundsEnv.from_profile(profile_path)
+    _WORKER_ENV = BattlegroundsEnv.from_profile(profile_path, **env_kwargs)
 
 
 def _collect_chunk(job: dict[str, Any]) -> dict[str, np.ndarray]:
@@ -125,7 +125,13 @@ class ParallelRolloutCollector:
     takes the self-play pool and assignment from ``SnapshotPool.draw``.
     """
 
-    def __init__(self, profile_path: str | Path, workers: int) -> None:
+    def __init__(
+        self,
+        profile_path: str | Path,
+        workers: int,
+        env_kwargs: Mapping[str, Any] | None = None,
+    ) -> None:
+        """``env_kwargs`` go to each worker's ``BattlegroundsEnv`` (e.g. ``action_penalty``)."""
         if workers < 1:
             raise ValueError("workers must be positive.")
         self.workers = workers
@@ -135,7 +141,7 @@ class ParallelRolloutCollector:
             max_workers=workers,
             mp_context=mp.get_context("spawn"),
             initializer=_init_worker,
-            initargs=(str(profile_path),),
+            initargs=(str(profile_path), dict(env_kwargs or {})),
         )
 
     def __enter__(self) -> ParallelRolloutCollector:

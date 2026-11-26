@@ -14,6 +14,11 @@
 #     sbatch --array=0-3 scripts/train_ppo.sbatch                     # 4 runs, different seeds
 #     SELF_PLAY=0 RUN_NAME=vs_random sbatch scripts/train_ppo.sbatch  # train against random bots
 #
+# Action-penalty sweep, each run branched from an existing checkpoint
+# ({task} becomes the array task id, so task 2 starts from ..._s2/ppo_1000.pt):
+#     RUN_NAME=pen001 ACTION_PENALTY=0.001 TOTAL_ITERATIONS=2000 \
+#       INIT_FROM='checkpoints/cluster_selfplay_s{task}/ppo_1000.pt' sbatch --array=0-4 scripts/train_ppo.sbatch
+#
 # Monitor:
 #     squeue -u $USER
 #     tail -f logs/hsbg-ppo-<jobid>_<task>.out
@@ -47,6 +52,9 @@ BASE_SEED="${BASE_SEED:-7}"
 EVAL_EPISODES="${EVAL_EPISODES:-200}"  # 0 skips the final evaluation
 WORKERS="${WORKERS:-${SLURM_CPUS_PER_TASK:-1}}"   # parallel game-playing processes
 PYTHON_MODULE="${PYTHON_MODULE:-python/3.11}"
+ACTION_PENALTY="${ACTION_PENALTY:-0}"          # reward cost per learner action; 0 = off
+PENALIZED_ACTIONS="${PENALIZED_ACTIONS:-all}"  # all (every action but end turn) or padding (moves, freeze)
+INIT_FROM="${INIT_FROM:-}"                     # start a NEW run from this checkpoint; {task} = array task id
 # ---------------------------------------------------------------------------
 
 cd "${SLURM_SUBMIT_DIR}"
@@ -74,11 +82,24 @@ export PYTHONUNBUFFERED=1   # print each iteration to the log immediately
 
 mkdir -p "${RUN_DIR}"
 
+# Branch a new run from an existing checkpoint (only if this run has none yet).
+if [[ -n "${INIT_FROM}" && ! -f "${RUN_DIR}/ppo_latest.pt" ]]; then
+    SOURCE="${INIT_FROM//\{task\}/${TASK_ID}}"
+    if [[ ! -f "${SOURCE}" ]]; then
+        echo "error: INIT_FROM checkpoint not found: ${SOURCE}" >&2
+        exit 1
+    fi
+    cp "${SOURCE}" "${RUN_DIR}/ppo_latest.pt"
+    echo "initialised ${RUN_DIR} from ${SOURCE}"
+fi
+
 TRAIN_ARGS=(--checkpoint-dir "${RUN_DIR}"
             --episodes-per-rollout "${EPISODES_PER_ROLLOUT}"
             --save-every "${SAVE_EVERY}"
             --seed "${SEED}"
-            --workers "${WORKERS}")
+            --workers "${WORKERS}"
+            --action-penalty "${ACTION_PENALTY}"
+            --penalized-actions "${PENALIZED_ACTIONS}")
 if [[ "${SELF_PLAY}" == "1" ]]; then
     TRAIN_ARGS+=(--self-play --pool-size "${POOL_SIZE}" --random-opponents "${RANDOM_OPPONENTS}")
 fi
@@ -92,7 +113,7 @@ fi
 REMAINING=$(( TOTAL_ITERATIONS - DONE ))
 
 echo "job=${SLURM_JOB_ID:-local} task=${TASK_ID} host=$(hostname) start=$(date -Is)"
-echo "run_dir=${RUN_DIR} seed=${SEED} workers=${WORKERS} self_play=${SELF_PLAY} pool=${POOL_SIZE} random_opponents=${RANDOM_OPPONENTS}"
+echo "run_dir=${RUN_DIR} seed=${SEED} workers=${WORKERS} self_play=${SELF_PLAY} pool=${POOL_SIZE} random_opponents=${RANDOM_OPPONENTS} action_penalty=${ACTION_PENALTY} (${PENALIZED_ACTIONS})"
 echo "iterations: done=${DONE} target=${TOTAL_ITERATIONS} remaining=${REMAINING}"
 
 if (( REMAINING > 0 )); then

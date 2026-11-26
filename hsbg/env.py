@@ -384,6 +384,18 @@ class IndexPolicy(Protocol):
 OpponentPolicy = ActionAgent | IndexPolicy
 RewardFn = Callable[[int, int], float]
 
+#: Which learner actions ``action_penalty`` charges for.
+PENALIZED_ACTIONS: dict[str, frozenset[RecruitActionKind]] = {
+    # every action except ending the turn
+    "all": frozenset(RecruitActionKind) - {RecruitActionKind.END_RECRUIT},
+    # only actions that never change gold, cards or tavern tier
+    "padding": frozenset({
+        RecruitActionKind.REORDER_BOARD,
+        RecruitActionKind.FREEZE,
+        RecruitActionKind.UNFREEZE,
+    }),
+}
+
 
 def placement_reward(place: int, player_count: int) -> float:
     """Linear terminal reward: +1 for 1st, -1 for last (0 when ``player_count`` is 1)."""
@@ -403,6 +415,10 @@ class BattlegroundsEnv:
 
     ``step`` returns ``(observation, reward, terminated, truncated, info)``.
     Reward is 0 until termination, then ``reward_fn(place, player_count)``.
+    With ``action_penalty > 0``, each learner action whose kind is in
+    ``PENALIZED_ACTIONS[penalized_actions]`` also costs ``action_penalty``
+    reward on that step ("all": everything but end turn; "padding": board
+    moves and freeze toggles). The default of 0 leaves rewards unchanged.
     ``truncated`` is always False because the engine itself ends long games.
     ``info`` holds ``action_mask``, ``turn`` and ``placement`` (``None`` while
     the game continues).
@@ -426,9 +442,18 @@ class BattlegroundsEnv:
         max_actions_per_turn: int = 64,
         include_card_identity: bool = True,
         record_combat_frames: bool = False,
+        action_penalty: float = 0.0,
+        penalized_actions: str = "all",
     ) -> None:
         if max_actions_per_turn < 1:
             raise ValueError("max_actions_per_turn must be positive.")
+        if action_penalty < 0:
+            raise ValueError("action_penalty must be non-negative.")
+        if penalized_actions not in PENALIZED_ACTIONS:
+            raise ValueError(f"penalized_actions must be one of {sorted(PENALIZED_ACTIONS)}.")
+        self.action_penalty = float(action_penalty)
+        self.penalized_actions = penalized_actions
+        self._penalized_kinds = PENALIZED_ACTIONS[penalized_actions]
         self.profile = profile
         self.cards = tuple(cards)
         self.learner_id = learner_id
@@ -503,6 +528,7 @@ class BattlegroundsEnv:
         engine = self.engine
         engine.apply_action(self.learner_id, move.action, board_order=move.board_order)
         self._learner_actions_this_turn += 1
+        cost = self.action_penalty if move.action.kind in self._penalized_kinds else 0.0
 
         while (
             not engine.finished
@@ -518,10 +544,10 @@ class BattlegroundsEnv:
         place = self._placement()
         observation = self._refresh()
         if place is None:
-            return observation, 0.0, False, False, self._info(None)
+            return observation, -cost, False, False, self._info(None)
         self._done = True
         reward = self.reward_fn(place, self.profile.rules.player_count)
-        return observation, reward, True, False, self._info(place)
+        return observation, reward - cost, True, False, self._info(place)
 
     def action_mask(self) -> np.ndarray:
         """Legal indices for the learner's current decision (all False when done)."""

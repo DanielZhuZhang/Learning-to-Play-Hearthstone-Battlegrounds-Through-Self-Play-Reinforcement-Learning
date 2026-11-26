@@ -53,6 +53,18 @@ def parse_args() -> argparse.Namespace:
         help="With --self-play, keep this many opponent seats as random bots.",
     )
     parser.add_argument(
+        "--action-penalty",
+        type=float,
+        default=0.0,
+        help="Reward subtracted for each learner action (see --penalized-actions). 0 = off.",
+    )
+    parser.add_argument(
+        "--penalized-actions",
+        choices=("all", "padding"),
+        default="all",
+        help="all = every action except end turn; padding = board moves and freeze toggles only.",
+    )
+    parser.add_argument(
         "--workers",
         type=int,
         default=1,
@@ -77,7 +89,15 @@ def main() -> None:
     torch.set_num_threads(1)
     device = torch.device(args.device)
 
-    env = BattlegroundsEnv.from_profile(PROFILE)
+    if args.action_penalty < 0:
+        raise ValueError("action-penalty must be non-negative.")
+    env_kwargs = {
+        "action_penalty": args.action_penalty,
+        "penalized_actions": args.penalized_actions,
+    }
+    env = BattlegroundsEnv.from_profile(PROFILE, **env_kwargs)
+    if args.action_penalty:
+        print(f"action penalty: {args.action_penalty} per action ({args.penalized_actions})")
     actor = ActorNetwork.from_env(env).to(device)
     critic = CriticNetwork.from_env(env).to(device)
     actor_optimizer = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
@@ -101,6 +121,9 @@ def main() -> None:
         start_iteration = int(state["iteration"])
         next_seed = int(state["seed"])
         ppo_config = PPOConfig(**state["ppo_config"])
+        previous = state.get("metadata", {}).get("env_kwargs")
+        if previous is not None and previous != env_kwargs:
+            print(f"note: checkpoint was trained with {previous}; continuing with {env_kwargs}")
 
     checkpoint_dir = args.checkpoint_dir
     if args.workers < 1:
@@ -127,7 +150,7 @@ def main() -> None:
 
     collector = None
     if args.workers > 1:
-        collector = ParallelRolloutCollector(PROFILE, args.workers)
+        collector = ParallelRolloutCollector(PROFILE, args.workers, env_kwargs)
         print(f"parallel rollouts: workers={args.workers}")
 
     try:
@@ -195,6 +218,10 @@ def _train(args, env, actor, critic, actor_optimizer, critic_optimizer,
         )
 
         if iteration % args.save_every == 0:
+            metadata = {"env_kwargs": {
+                "action_penalty": env.action_penalty,
+                "penalized_actions": env.penalized_actions,
+            }}
             save_checkpoint(
                 checkpoint_dir / f"ppo_{iteration}.pt",
                 actor,
@@ -204,6 +231,7 @@ def _train(args, env, actor, critic, actor_optimizer, critic_optimizer,
                 iteration=iteration,
                 seed=next_seed,
                 ppo_config=ppo_config,
+                metadata=metadata,
             )
             save_checkpoint(
                 checkpoint_dir / "ppo_latest.pt",
@@ -214,6 +242,7 @@ def _train(args, env, actor, critic, actor_optimizer, critic_optimizer,
                 iteration=iteration,
                 seed=next_seed,
                 ppo_config=ppo_config,
+                metadata=metadata,
             )
 
 

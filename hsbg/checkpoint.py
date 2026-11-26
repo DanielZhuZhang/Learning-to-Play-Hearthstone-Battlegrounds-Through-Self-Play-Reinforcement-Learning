@@ -21,7 +21,9 @@ def save_checkpoint(
     iteration: int,
     seed: int,
     ppo_config: PPOConfig,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
+    """``metadata`` is stored as-is for the record (e.g. the run's reward settings)."""
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
@@ -33,6 +35,7 @@ def save_checkpoint(
             "iteration": iteration,
             "seed": seed,
             "ppo_config": asdict(ppo_config),
+            "metadata": dict(metadata or {}),
         },
         destination,
     )
