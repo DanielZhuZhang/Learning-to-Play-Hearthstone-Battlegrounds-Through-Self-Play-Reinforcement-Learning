@@ -27,8 +27,8 @@
 #SBATCH --partition=short            # check `sinfo` for partitions and time limits
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=2            # training is single-threaded; one spare core
-#SBATCH --mem=4G
+#SBATCH --cpus-per-task=8            # one rollout worker per core (see WORKERS)
+#SBATCH --mem=8G                     # about 0.5 GB per worker
 #SBATCH --time=24:00:00
 #SBATCH --output=logs/%x-%A_%a.out
 #SBATCH --error=logs/%x-%A_%a.out
@@ -38,13 +38,14 @@ set -euo pipefail
 # ---- settings (override with VAR=value sbatch ...) -------------------------
 RUN_NAME="${RUN_NAME:-cluster_selfplay}"
 TOTAL_ITERATIONS="${TOTAL_ITERATIONS:-1000}"
-EPISODES_PER_ROLLOUT="${EPISODES_PER_ROLLOUT:-8}"
+EPISODES_PER_ROLLOUT="${EPISODES_PER_ROLLOUT:-16}"  # keep it >= WORKERS so no worker sits idle
 SAVE_EVERY="${SAVE_EVERY:-25}"
 SELF_PLAY="${SELF_PLAY:-1}"           # 1 = self-play, 0 = random opponents
 POOL_SIZE="${POOL_SIZE:-5}"
 RANDOM_OPPONENTS="${RANDOM_OPPONENTS:-2}"
 BASE_SEED="${BASE_SEED:-7}"
 EVAL_EPISODES="${EVAL_EPISODES:-200}"  # 0 skips the final evaluation
+WORKERS="${WORKERS:-${SLURM_CPUS_PER_TASK:-1}}"   # parallel game-playing processes
 PYTHON_MODULE="${PYTHON_MODULE:-python/3.11}"
 # ---------------------------------------------------------------------------
 
@@ -76,7 +77,8 @@ mkdir -p "${RUN_DIR}"
 TRAIN_ARGS=(--checkpoint-dir "${RUN_DIR}"
             --episodes-per-rollout "${EPISODES_PER_ROLLOUT}"
             --save-every "${SAVE_EVERY}"
-            --seed "${SEED}")
+            --seed "${SEED}"
+            --workers "${WORKERS}")
 if [[ "${SELF_PLAY}" == "1" ]]; then
     TRAIN_ARGS+=(--self-play --pool-size "${POOL_SIZE}" --random-opponents "${RANDOM_OPPONENTS}")
 fi
@@ -90,7 +92,7 @@ fi
 REMAINING=$(( TOTAL_ITERATIONS - DONE ))
 
 echo "job=${SLURM_JOB_ID:-local} task=${TASK_ID} host=$(hostname) start=$(date -Is)"
-echo "run_dir=${RUN_DIR} seed=${SEED} self_play=${SELF_PLAY} pool=${POOL_SIZE} random_opponents=${RANDOM_OPPONENTS}"
+echo "run_dir=${RUN_DIR} seed=${SEED} workers=${WORKERS} self_play=${SELF_PLAY} pool=${POOL_SIZE} random_opponents=${RANDOM_OPPONENTS}"
 echo "iterations: done=${DONE} target=${TOTAL_ITERATIONS} remaining=${REMAINING}"
 
 if (( REMAINING > 0 )); then

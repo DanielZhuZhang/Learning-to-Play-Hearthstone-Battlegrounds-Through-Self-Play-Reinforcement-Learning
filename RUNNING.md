@@ -81,11 +81,21 @@ python rl/train_ppo.py --resume checkpoints/selfplay2/ppo_latest.pt --self-play 
 | `--self-play` | off | Opponents are frozen snapshots of the learner instead of random bots. |
 | `--pool-size K` | `1` | Number of recent snapshots to keep. 1 means opponents are always the previous iteration. |
 | `--random-opponents R` | `0` | With `--self-play`, keep R of the 7 opponent seats as random bots. |
+| `--workers N` | `1` | Processes that play the rollout games in parallel. See "Parallel workers" below. |
 | `--device cpu\|cuda` | `cpu` | Use `cuda` to train on a GPU. |
 
 **Output.** Each iteration prints one line with `mean_episode_return`, `policy_loss`, `value_loss`, `entropy` and `approx_kl`. Return runs from −1 (last place) to +1 (first place), so a rising `mean_episode_return` means the agent is improving.
 
 **Checkpoints.** Each save writes `ppo_<iteration>.pt` and `ppo_latest.pt`. Saves happen only on multiples of `--save-every`, so make `--iterations` a multiple of it, or the last iterations won't be saved. Git ignores everything in `checkpoints/` except each run's `ppo_latest.pt`, which is committed through Git LFS.
+
+**Parallel workers.** With `--workers N`, the games in each iteration are split across N processes. Each worker keeps its own copy of the game, gets the current network weights every iteration, plays its share of the games, and sends the decisions back. Training itself still happens in the main process. On a 16-core desktop, 16 games took 5.7s with 1 worker and 1.1s with 8 workers. Starting the workers costs about 5s once per run.
+
+- Set `--episodes-per-rollout` to at least `--workers`. Extra workers with no games to play just sit idle.
+- Results are reproducible for a fixed worker count. A different worker count samples different (equally valid) actions.
+
+```powershell
+python rl/train_ppo.py --self-play --pool-size 5 --episodes-per-rollout 16 --workers 8 --iterations 200 --checkpoint-dir checkpoints/fast1
+```
 
 **Long runs.** On Windows, run training in its own terminal and keep it open. Resume with `--resume` if it stops.
 

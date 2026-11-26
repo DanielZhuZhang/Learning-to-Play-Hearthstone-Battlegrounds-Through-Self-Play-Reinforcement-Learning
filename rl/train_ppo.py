@@ -17,6 +17,7 @@ from hsbg.ppo import PPOConfig, update_ppo  # noqa: E402
 from hsbg.rollout import collect_rollout  # noqa: E402
 from hsbg.checkpoint import load_checkpoint, save_checkpoint  # noqa: E402
 from hsbg.selfplay import SnapshotPool  # noqa: E402
+from hsbg.parallel import ParallelRolloutCollector  # noqa: E402
 
 
 PROFILE = ROOT / "data" / "profiles" / "initial-15.6.json"
@@ -50,6 +51,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="With --self-play, keep this many opponent seats as random bots.",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Processes that play rollout games in parallel (1 = in-process, as before).",
     )
     parser.add_argument(
         "--device",
@@ -96,6 +103,8 @@ def main() -> None:
         ppo_config = PPOConfig(**state["ppo_config"])
 
     checkpoint_dir = args.checkpoint_dir
+    if args.workers < 1:
+        raise ValueError("workers must be positive.")
     if args.save_every < 1:
         raise ValueError("save-every must be positive.")
     if args.pool_size < 1:
@@ -106,6 +115,7 @@ def main() -> None:
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     pool = None
+    opponent_rng = None
     if args.self_play:
         pool = SnapshotPool(args.pool_size, device=device)
         pool.add(actor, iteration=start_iteration)
@@ -115,23 +125,53 @@ def main() -> None:
             f"random_opponents={args.random_opponents}"
         )
 
+    collector = None
+    if args.workers > 1:
+        collector = ParallelRolloutCollector(PROFILE, args.workers)
+        print(f"parallel rollouts: workers={args.workers}")
+
+    try:
+        _train(args, env, actor, critic, actor_optimizer, critic_optimizer,
+               ppo_config, pool, collector, start_iteration, next_seed, checkpoint_dir,
+               opponent_rng)
+    finally:
+        if collector is not None:
+            collector.close()
+
+
+def _train(args, env, actor, critic, actor_optimizer, critic_optimizer,
+           ppo_config, pool, collector, start_iteration, next_seed, checkpoint_dir,
+           opponent_rng) -> None:
     for iteration in range(start_iteration + 1, start_iteration + args.iterations + 1):
         seeds = range(next_seed, next_seed + args.episodes_per_rollout)
         next_seed += args.episodes_per_rollout
 
-        if pool is not None:
-            pool.assign(env, opponent_rng, random_seats=args.random_opponents)
-
         actor.eval()
         critic.eval()
-        buffer = collect_rollout(
-            env,
-            actor,
-            critic,
-            seeds,
-            gamma=args.gamma,
-            gae_lambda=args.gae_lambda,
-        )
+        if collector is None:
+            if pool is not None:
+                pool.assign(env, opponent_rng, random_seats=args.random_opponents)
+            buffer = collect_rollout(
+                env,
+                actor,
+                critic,
+                seeds,
+                gamma=args.gamma,
+                gae_lambda=args.gae_lambda,
+            )
+        else:
+            assignment = None
+            if pool is not None:
+                assignment = pool.draw(env, opponent_rng, random_seats=args.random_opponents)
+            buffer = collector.collect(
+                actor,
+                critic,
+                seeds,
+                gamma=args.gamma,
+                gae_lambda=args.gae_lambda,
+                pool=pool,
+                assignment=assignment,
+            )
         actor.train()
         metrics = update_ppo(
             actor,

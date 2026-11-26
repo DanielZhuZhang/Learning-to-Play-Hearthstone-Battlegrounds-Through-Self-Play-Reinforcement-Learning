@@ -74,10 +74,14 @@ class SnapshotPool:
         self.snapshots.append((iteration, ActorPolicy(actor, device=self.device)))
         del self.snapshots[: -self.max_size]
 
-    def assign(
+    def draw(
         self, env, rng: random.Random, *, random_seats: int = 0
     ) -> dict[str, int | None]:
-        """Set ``env.opponents``; returns seat -> snapshot iteration (None = random bot)."""
+        """Pick opponents without touching ``env``: seat -> pool index (None = random bot).
+
+        ``assign`` uses this; parallel rollout workers use it directly so every
+        worker sees the same opponents.
+        """
         if not self.snapshots:
             raise ValueError("Add at least one snapshot before assigning opponents.")
         seats = [
@@ -88,13 +92,25 @@ class SnapshotPool:
         if not 0 <= random_seats <= len(seats):
             raise ValueError(f"random_seats must be in [0, {len(seats)}].")
         rng.shuffle(seats)
-        chosen: dict[str, int | None] = {}
+        picks: dict[str, int | None] = {}
         for position, seat in enumerate(seats):
             if position < random_seats:
+                picks[seat] = None
+            else:
+                picks[seat] = rng.randrange(len(self.snapshots))
+        return picks
+
+    def assign(
+        self, env, rng: random.Random, *, random_seats: int = 0
+    ) -> dict[str, int | None]:
+        """Set ``env.opponents``; returns seat -> snapshot iteration (None = random bot)."""
+        chosen: dict[str, int | None] = {}
+        for seat, index in self.draw(env, rng, random_seats=random_seats).items():
+            if index is None:
                 env.opponents.pop(seat, None)
                 chosen[seat] = None
             else:
-                iteration, policy = rng.choice(self.snapshots)
+                iteration, policy = self.snapshots[index]
                 env.opponents[seat] = policy
                 chosen[seat] = iteration
         return chosen
