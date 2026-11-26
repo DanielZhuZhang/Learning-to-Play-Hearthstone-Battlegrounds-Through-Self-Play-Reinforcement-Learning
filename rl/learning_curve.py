@@ -4,13 +4,16 @@ For each ``ppo_<iteration>.pt`` in a run directory this reports:
 
 * placement against 7 random bots (random play averages 4.5);
 * placement against 7 copies of a fixed reference checkpoint (default: the
-  run's ``ppo_latest.pt``), which keeps showing progress after the agent
-  beats random bots every game;
+  highest-numbered ``ppo_<N>.pt`` present when the script starts, so a run
+  that is still training cannot change it mid-evaluation), which keeps
+  showing progress after the agent beats random bots every game;
 * how many decisions per game are padding (moves and freeze toggles).
 
-The learner always takes its top choice; reference opponents sample, as in
-training. Every checkpoint plays the same seeds. Checkpoints are scored in
-parallel, one per worker process.
+By default the learner samples its actions, as in training and as the
+reference opponents do, so a checkpoint against copies of itself averages
+4.5. ``--greedy`` makes the learner always take its top choice instead; this
+policy was trained by sampling and plays noticeably worse greedily. Every
+checkpoint plays the same seeds. Checkpoints are scored in parallel.
 
     python rl/learning_curve.py checkpoints/cluster_selfplay_s0 --episodes 50 --workers 16
     python rl/learning_curve.py checkpoints/cluster_selfplay_s0 --every 4 --csv curve_s0.csv
@@ -51,7 +54,9 @@ def _load_actor(env: BattlegroundsEnv, path: Path) -> ActorNetwork:
 
 
 @torch.no_grad()
-def _play(env: BattlegroundsEnv, actor: ActorNetwork, seeds: range) -> tuple[float, float, float]:
+def _play(
+    env: BattlegroundsEnv, actor: ActorNetwork, seeds: range, greedy: bool
+) -> tuple[float, float, float]:
     """Mean placement, decisions per game, and padding share of decisions."""
     placements, decisions, padding = [], 0, 0
     for seed in seeds:
@@ -60,7 +65,7 @@ def _play(env: BattlegroundsEnv, actor: ActorNetwork, seeds: range) -> tuple[flo
             action, _, _ = actor.act(
                 torch.as_tensor(obs, dtype=torch.float32),
                 torch.as_tensor(info["action_mask"], dtype=torch.bool),
-                deterministic=True,
+                deterministic=greedy,
             )
             index = int(action.item())
             decisions += 1
@@ -73,8 +78,8 @@ def _play(env: BattlegroundsEnv, actor: ActorNetwork, seeds: range) -> tuple[flo
     return float(np.mean(placements)), decisions / len(seeds), padding / max(decisions, 1)
 
 
-def _score(job: tuple[str, str | None, int, int]) -> dict[str, float | int | str]:
-    checkpoint, reference, episodes, seed = job
+def _score(job: tuple[str, str | None, int, int, bool]) -> dict[str, float | int | str]:
+    checkpoint, reference, episodes, seed, greedy = job
     torch.set_num_threads(1)
     torch.manual_seed(seed)
     env = BattlegroundsEnv.from_profile(PROFILE)
@@ -82,7 +87,7 @@ def _score(job: tuple[str, str | None, int, int]) -> dict[str, float | int | str
     seeds = range(seed, seed + episodes)
 
     row: dict[str, float | int | str] = {"checkpoint": Path(checkpoint).name}
-    row["vs_random"], row["decisions_per_game"], row["padding_share"] = _play(env, actor, seeds)
+    row["vs_random"], row["decisions_per_game"], row["padding_share"] = _play(env, actor, seeds, greedy)
     if reference is not None:
         opponent = ActorPolicy(_load_actor(env, Path(reference)))
         env.opponents = {
@@ -90,7 +95,8 @@ def _score(job: tuple[str, str | None, int, int]) -> dict[str, float | int | str
             for i in range(env.profile.rules.player_count)
             if f"player-{i + 1}" != env.learner_id
         }
-        row["vs_reference"], _, _ = _play(env, actor, seeds)
+        torch.manual_seed(seed + 1)
+        row["vs_reference"], _, _ = _play(env, actor, seeds, greedy)
     return row
 
 
@@ -106,8 +112,10 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=5000)
     parser.add_argument("--every", type=int, default=1, help="score every Nth checkpoint (latest always included)")
     parser.add_argument("--reference", type=Path, default=None,
-                        help="opponent checkpoint (default: <run_dir>/ppo_latest.pt)")
+                        help="opponent checkpoint (default: highest-numbered ppo_<N>.pt in run_dir)")
     parser.add_argument("--no-reference", action="store_true", help="only score against random bots")
+    parser.add_argument("--greedy", action="store_true",
+                        help="learner always takes its top choice instead of sampling")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--csv", type=Path, default=None, help="also write the table to this CSV file")
     args = parser.parse_args()
@@ -121,13 +129,15 @@ def main() -> None:
 
     reference = None
     if not args.no_reference:
-        reference = args.reference or args.run_dir / "ppo_latest.pt"
+        reference = args.reference or checkpoints[-1]
         if not reference.is_file():
             parser.error(f"Reference checkpoint not found: {reference}")
-        print(f"reference opponent: {reference} (7 copies)")
+        print(f"reference opponent: {reference} (7 copies, sampling)")
+    print(f"learner: {'top choice (greedy)' if args.greedy else 'sampling, as in training'}")
     print(f"scoring {len(selected)} checkpoints x {args.episodes} games with {args.workers} workers\n")
 
-    jobs = [(str(p), str(reference) if reference else None, args.episodes, args.seed) for p in selected]
+    jobs = [(str(p), str(reference) if reference else None, args.episodes, args.seed, args.greedy)
+            for p in selected]
     header = f"{'iteration':>9}  {'vs_random':>9}  {'vs_reference':>12}  {'decisions/game':>14}  {'padding':>7}"
     print(header)
     print("-" * len(header))
@@ -141,6 +151,7 @@ def main() -> None:
                   f"{row['decisions_per_game']:14.0f}  {row['padding_share']:7.0%}", flush=True)
 
     print("\nPlacement: 1 = always first, 8 = always last. Random play and an equal opponent both average 4.5.")
+    print(f"With {args.episodes} games, differences under about {4.6 / args.episodes ** 0.5:.1f} places are within noise.")
     if args.csv:
         with args.csv.open("w", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=["iteration", "checkpoint", "vs_random", "vs_reference",
