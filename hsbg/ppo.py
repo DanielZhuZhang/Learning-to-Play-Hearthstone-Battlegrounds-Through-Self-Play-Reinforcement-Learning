@@ -79,7 +79,8 @@ def update_ppo(
                 buffer.actions[indices],
             )
             old_log_probs = buffer.old_log_probs[indices]
-            ratio = (log_probs - old_log_probs).exp()
+            log_ratio = log_probs - old_log_probs
+            ratio = log_ratio.exp()
             batch_advantages = advantages[indices]
             unclipped = ratio * batch_advantages
             clipped = torch.clamp(
@@ -91,9 +92,11 @@ def update_ppo(
             entropy_loss = entropy.mean()
             actor_loss = policy_loss - config.entropy_coefficient * entropy_loss
 
-            approximate_kl = (
-                (old_log_probs - log_probs).abs().mean()
-            )
+            # Unbiased, always non-negative estimator of KL(old || new):
+            # E[(r - 1) - log r]. The previous mean |log r| ran several
+            # times higher and stopped every update in its first epoch.
+            with torch.no_grad():
+                approximate_kl = ((ratio - 1) - log_ratio).mean()
 
             actor_optimizer.zero_grad()
             actor_loss.backward()
